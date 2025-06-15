@@ -1,0 +1,20 @@
+body {
+    background-color: #f8f9fa;
+}
+
+.messages-container {
+    height: 400px;
+    overflow-y: auto;
+}
+
+.message {
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    border-radius: 8px;
+    background-color: #f1f1f1;
+}
+
+.message-time {
+    font-size: 0.8em;
+    color: #6c757d;
+}
