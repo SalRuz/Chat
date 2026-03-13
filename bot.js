@@ -426,11 +426,6 @@ async function connectToServer(chatId, session) {
         await sendToChatUsers(host, port, `<b>➖ ${player.username} покинул игру</b>`, 'HTML');
     });
 
-    mcBot.on('death', async () => {
-        if (!session.chatEnabled) return;
-        await sendToChatUsers(host, port, '<b>💀 Бот умер!</b>', 'HTML');
-    });
-
     mcBot.on('kicked', async (reason) => {
         clearTimeout(spawnTimeout);
         console.log(`[${chatId}] Кикнут: ${reason}`);
