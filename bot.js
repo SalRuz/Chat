@@ -363,7 +363,8 @@ async function connectToServer(chatId, session) {
 
     // Сервер свободен - запускаем как основной бот
     const tgUser = session.username || 'User';
-    const name = `${tgUser}_bot`;
+    const randomNum = Math.floor(1000 + Math.random() * 9000); // Случайное 4-значное число
+    const name = `${tgUser}_bot_${randomNum}`;
     console.log(`[${chatId}] Подключение к ${host}:${port}, версия: ${session.version}, ник: ${name}`);
 
     const mcBot = mineflayer.createBot({
