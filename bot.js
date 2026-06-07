@@ -46,7 +46,7 @@ function addColumnIfNotExists(tableName, columnName, columnType, defaultValue = 
     });
 }
 
-// Инициализация базы данных с миграцией (переписана для 100% надежности)
+// Инициализация базы данных с миграцией
 async function initDatabase() {    return new Promise((resolve, reject) => {
         db.run(`CREATE TABLE IF NOT EXISTS sessions (
             user_id INTEGER PRIMARY KEY,
@@ -147,7 +147,7 @@ async function connectToServer(userId, host, port, nickname) {
         }, 1500);
                 mcBot.on('spawn', () => {
             console.log(`[${userId}] ✅ Бот заспавнился на сервере!`);
-            sendToTelegram(userId, `✅ Бот успешно зашел на сервер ${host}:${port}\n📦 Версия: ${version}\n👤 Ник: ${nickname}`);
+            sendToTelegram(userId, `✅ Бот успешно зашел на сервер ${host}:${port}\n Версия: ${version}\n👤 Ник: ${nickname}`);
             db.run('UPDATE sessions SET server_version = ? WHERE user_id = ?', [version, userId]);
         });
         
@@ -181,7 +181,7 @@ async function connectToServer(userId, host, port, nickname) {
         
         mcBot.on('error', (err) => {
             console.error(`[${userId}] Ошибка:`, err.message);
-            sendToTelegram(userId, `❌ Ошибка подключения: ${err.message}`);
+            sendToTelegram(userId, ` Ошибка подключения: ${err.message}`);
         });
         
         mcBot.on('end', () => {
@@ -194,7 +194,7 @@ async function connectToServer(userId, host, port, nickname) {
         db.run('UPDATE sessions SET is_active = 1 WHERE user_id = ?', [userId]);
         
     } catch (err) {
-        console.error(`[${userId}] Ошибка подключения:`, err.message);        sendToTelegram(userId, `❌ Не удалось подключиться: ${err.message}`);
+        console.error(`[${userId}] Ошибка подключения:`, err.message);        sendToTelegram(userId, ` Не удалось подключиться: ${err.message}`);
     }
 }
 
@@ -247,7 +247,7 @@ bot.onText(/\/start/, (msg) => {
             bot.sendMessage(chatId, 
                 `👋 Привет, ${username}!\n\n` +
                 `Я бот для управления Minecraft через Telegram.\n\n` +
-                `📋 <b>Команды:</b>\n` +
+                ` <b>Команды:</b>\n` +
                 `/connect {host} {port} - подключиться к серверу\n` +
                 `/disconnect - отключиться\n` +
                 `/status - статус бота\n` +
@@ -263,24 +263,42 @@ bot.onText(/\/start/, (msg) => {
 
 bot.onText(/\/connect (.+)/, (msg, match) => {
     const chatId = msg.chat.id;
-    const args = match[1].split(' ');
+    const input = match[1].trim();
     
-    if (args.length < 1) {
-        bot.sendMessage(chatId, '❌ Использование: /connect {host} [port]');
+    let host, port;
+    
+    // Проверяем, есть ли порт в адресе (разделен двоеточием)
+    if (input.includes(':')) {
+        const parts = input.split(':');
+        host = parts[0];
+        port = parseInt(parts[1]);
+    } else {
+        // Если порта нет, используем дефолтный
+        const args = input.split(' ');
+        host = args[0];
+        port = args[1] ? parseInt(args[1]) : 25565;
+    }
+    
+    if (!host) {
+        bot.sendMessage(chatId, ' Использование: /connect {host} [port]\nПример: /connect example.com:25565');
         return;
     }
     
-    const host = args[0];
-    const port = args[1] ? parseInt(args[1]) : 25565;
+    if (isNaN(port) || port < 1 || port > 65535) {
+        bot.sendMessage(chatId, '❌ Неверный порт. Используйте число от 1 до 65535');
+        return;
+    }
     
+    // Получаем ник пользователя
     db.get('SELECT bot_nickname FROM sessions WHERE user_id = ?', [chatId], (err, row) => {
         const nickname = (row && row.bot_nickname) || `User_bot_${Math.floor(Math.random() * 10000)}`;
-        
+                // Сохраняем сервер
         db.run(
             'UPDATE sessions SET server_host = ?, server_port = ?, bot_nickname = ? WHERE user_id = ?',
             [host, port, nickname, chatId]
         );
         
+        // Сохраняем в active_servers
         db.get('SELECT * FROM active_servers WHERE owner_id = ?', [chatId], (err, activeRow) => {
             if (activeRow) {
                 db.run(
@@ -292,7 +310,8 @@ bot.onText(/\/connect (.+)/, (msg, match) => {
                     'INSERT INTO active_servers (host, port, nickname, owner_id) VALUES (?, ?, ?, ?)',
                     [host, port, nickname, chatId]
                 );
-            }        });
+            }
+        });
         
         bot.sendMessage(chatId, `🔄 Подключаюсь к ${host}:${port}...\n🔍 Автоматически определяю версию...`);
         connectToServer(chatId, host, port, nickname);
@@ -322,8 +341,7 @@ bot.onText(/\/status/, (msg) => {
         status += `👤 Ник: ${row.bot_nickname || 'не установлен'}\n`;
         status += `🖥 Сервер: ${row.server_host || 'не подключен'}:${row.server_port || ''}\n`;
         status += `📦 Версия: ${row.server_version || 'не определена'}\n`;
-        status += `🔌 Статус: ${isActive ? '🟢 Онлайн' : '🔴 Оффлайн'}`;
-        
+        status += `🔌 Статус: ${isActive ? ' Онлайн' : '🔴 Оффлайн'}`;        
         bot.sendMessage(chatId, status, { parse_mode: 'HTML' });
     });
 });
@@ -341,7 +359,8 @@ bot.onText(/\/nick (.+)/, (msg, match) => {
     bot.sendMessage(chatId, `✅ Ник изменен на: ${nickname}`);
 });
 
-bot.on('message', (msg) => {    if (!msg.text || msg.text.startsWith('/')) return;
+bot.on('message', (msg) => {
+    if (!msg.text || msg.text.startsWith('/')) return;
     
     const chatId = msg.chat.id;
     if (!activeBots.has(chatId)) return;
@@ -371,11 +390,10 @@ async function startBot() {
                 console.log(`[${row.user_id}] Восстановлена: ${row.server_host}:${row.server_port}`);
                 connectToServer(row.user_id, row.server_host, row.server_port, row.bot_nickname);
             });
-        });
-        
+        });        
         console.log('✅ Бот запущен!');
     } catch (err) {
-        console.error('❌ Критическая ошибка запуска:', err);
+        console.error(' Критическая ошибка запуска:', err);
         process.exit(1);
     }
 }
