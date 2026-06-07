@@ -14,40 +14,92 @@ if (!TOKEN) {
 const bot = new TelegramBot(TOKEN, { polling: true });
 const db = new sqlite3.Database('/app/data/bot.db');
 
-// Инициализация базы данных
-db.serialize(() => {
-    db.run(`CREATE TABLE IF NOT EXISTS sessions (
-        user_id INTEGER PRIMARY KEY,
-        username TEXT,
-        is_owner INTEGER DEFAULT 0,
-        server_host TEXT,
-        server_port INTEGER,
-        server_version TEXT,
-        bot_nickname TEXT,
-        is_active INTEGER DEFAULT 0
-    )`);
-    
-    db.run(`CREATE TABLE IF NOT EXISTS chat_users (
-        user_id INTEGER PRIMARY KEY,
-        username TEXT,
-        is_allowed INTEGER DEFAULT 1
-    )`);
-    
-    db.run(`CREATE TABLE IF NOT EXISTS active_servers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        host TEXT,
-        port INTEGER,
-        version TEXT,
-        nickname TEXT,
-        owner_id INTEGER
-    )`);
-});
-
 // Хранилище активных ботов
 const activeBots = new Map();
 
+// Функция для безопасного добавления колонки
+function addColumnIfNotExists(tableName, columnName, columnType, defaultValue = null) {
+    return new Promise((resolve) => {
+        db.all(`PRAGMA table_info(${tableName})`, (err, columns) => {
+            if (err) {
+                console.error(`Ошибка проверки колонок ${tableName}:`, err);
+                resolve();
+                return;
+            }
+            
+            const columnExists = columns.some(col => col.name === columnName);
+            
+            if (!columnExists) {
+                const defaultVal = defaultValue !== null ? ` DEFAULT ${defaultValue}` : '';
+                const sql = `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnType}${defaultVal}`;
+                db.run(sql, (err) => {
+                    if (err) {
+                        console.error(`Ошибка добавления колонки ${columnName}:`, err);
+                    } else {
+                        console.log(`✅ Добавлена колонка ${tableName}.${columnName}`);
+                    }
+                    resolve();
+                });
+            } else {
+                resolve();
+            }
+        });
+    });
+}
+
+// Инициализация базы данных с миграциейasync function initDatabase() {
+    return new Promise((resolve, reject) => {
+        db.serialize(async () => {
+            // Создаем таблицы если их нет
+            db.run(`CREATE TABLE IF NOT EXISTS sessions (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT,
+                is_owner INTEGER DEFAULT 0,
+                server_host TEXT,
+                server_port INTEGER,
+                server_version TEXT,
+                bot_nickname TEXT,
+                is_active INTEGER DEFAULT 0
+            )`);
+            
+            db.run(`CREATE TABLE IF NOT EXISTS chat_users (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT,
+                is_allowed INTEGER DEFAULT 1
+            )`);
+            
+            db.run(`CREATE TABLE IF NOT EXISTS active_servers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                host TEXT,
+                port INTEGER,
+                version TEXT,
+                nickname TEXT,
+                owner_id INTEGER
+            )`);
+            
+            // Ждем создания таблиц, затем добавляем недостающие колонки
+            setTimeout(async () => {
+                try {
+                    await addColumnIfNotExists('sessions', 'is_active', 'INTEGER', 0);
+                    await addColumnIfNotExists('sessions', 'server_version', 'TEXT');
+                    await addColumnIfNotExists('sessions', 'bot_nickname', 'TEXT');
+                    await addColumnIfNotExists('sessions', 'server_host', 'TEXT');
+                    await addColumnIfNotExists('sessions', 'server_port', 'INTEGER');
+                    await addColumnIfNotExists('sessions', 'is_owner', 'INTEGER', 0);
+                    
+                    console.log('✅ База данных готова');
+                    resolve();
+                } catch (err) {
+                    console.error('Ошибка миграции БД:', err);
+                    reject(err);
+                }
+            }, 500);
+        });
+    });
+}
 // Функция автоматического определения версии сервера
-async function detectServerVersion(host, port) {    return new Promise((resolve, reject) => {
+async function detectServerVersion(host, port) {
+    return new Promise((resolve, reject) => {
         console.log(`🔍 Определяю версию сервера ${host}:${port}...`);
         
         mc.ping({
@@ -93,17 +145,17 @@ async function connectToServer(userId, host, port, nickname) {
         // Anti-AFK: прыгаем каждые 1.5 секунды
         const jumpInterval = setInterval(() => {
             if (mcBot.entity && mcBot.physicsEnabled) {
-                mcBot.setControlState('jump', true);
-                setTimeout(() => mcBot.setControlState('jump', false), 500);
+                mcBot.setControlState('jump', true);                setTimeout(() => mcBot.setControlState('jump', false), 500);
             }
-        }, 1500);        
+        }, 1500);
+        
         mcBot.on('spawn', () => {
             console.log(`[${userId}] ✅ Бот заспавнился на сервере!`);
             sendToTelegram(userId, `✅ Бот успешно зашел на сервер ${host}:${port}\n📦 Версия: ${version}\n👤 Ник: ${nickname}`);
             
-            // Сохраняем активный сервер
+            // Сохраняем версию в БД
             db.run(
-                'UPDATE active_servers SET version = ? WHERE owner_id = ?',
+                'UPDATE sessions SET server_version = ? WHERE user_id = ?',
                 [version, userId]
             );
         });
@@ -142,17 +194,17 @@ async function connectToServer(userId, host, port, nickname) {
         });
         
         mcBot.on('end', () => {
-            console.log(`[${userId}] Отключен от сервера`);
-            sendToTelegram(userId, `🔌 Бот отключен от сервера`);
+            console.log(`[${userId}] Отключен от сервера`);            sendToTelegram(userId, `🔌 Бот отключен от сервера`);
             cleanupBot(userId);
-        });        
+        });
+        
         // Сохраняем бота
         activeBots.set(userId, { bot: mcBot, jumpInterval });
         
         // Обновляем статус в БД
         db.run(
-            'UPDATE sessions SET is_active = 1, server_version = ? WHERE user_id = ?',
-            [version, userId]
+            'UPDATE sessions SET is_active = 1 WHERE user_id = ?',
+            [userId]
         );
         
     } catch (err) {
@@ -175,18 +227,23 @@ function cleanupBot(userId) {
     db.run('UPDATE sessions SET is_active = 0 WHERE user_id = ?', [userId]);
 }
 
-// Отправка сообщения в Telegram
+// Отправка сообщения в Telegram с обработкой ошибок
 function sendToTelegram(userId, text, parseMode = null) {
     bot.sendMessage(userId, text, { parse_mode: parseMode }).catch(err => {
         console.error(`Ошибка отправки в Telegram:`, err.message);
+        // Если ошибка парсинга HTML, отправляем без форматирования
+        if (err.message.includes('parse entities') || err.message.includes('Bad Request')) {
+            bot.sendMessage(userId, text).catch(e => {
+                console.error(`Повторная ошибка отправки:`, e.message);
+            });
+        }
     });
 }
 
 // Экранирование HTML
 function escapeHtml(text) {
     return text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
+        .replace(/&/g, '&amp;')        .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
 }
 
@@ -194,7 +251,8 @@ function escapeHtml(text) {
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
     const username = msg.from.username || msg.from.first_name;
-        db.get('SELECT * FROM sessions WHERE user_id = ?', [chatId], (err, row) => {
+    
+    db.get('SELECT * FROM sessions WHERE user_id = ?', [chatId], (err, row) => {
         if (err) {
             console.error(err);
             return;
@@ -212,10 +270,10 @@ bot.onText(/\/start/, (msg) => {
                 `👋 Привет, ${username}!\n\n` +
                 `Я бот для управления Minecraft через Telegram.\n\n` +
                 `📋 <b>Команды:</b>\n` +
-                `/connect <host> <port> - подключиться к серверу\n` +
+                `/connect {host} {port} - подключиться к серверу\n` +
                 `/disconnect - отключиться\n` +
                 `/status - статус бота\n` +
-                `/nick <ник> - установить ник\n\n` +
+                `/nick {ник} - установить ник\n\n` +
                 `Просто пиши сообщения, чтобы общаться в Minecraft чате!`,
                 { parse_mode: 'HTML' }
             );
@@ -231,11 +289,10 @@ bot.onText(/\/connect (.+)/, (msg, match) => {
     const args = match[1].split(' ');
     
     if (args.length < 1) {
-        bot.sendMessage(chatId, '❌ Использование: /connect <host> [port]');
+        bot.sendMessage(chatId, '❌ Использование: /connect {host} [port]');
         return;
     }
-    
-    const host = args[0];
+        const host = args[0];
     const port = args[1] ? parseInt(args[1]) : 25565;
     
     // Получаем ник пользователя
@@ -243,7 +300,8 @@ bot.onText(/\/connect (.+)/, (msg, match) => {
         const nickname = (row && row.bot_nickname) || `User_bot_${Math.floor(Math.random() * 10000)}`;
         
         // Сохраняем сервер
-        db.run(            'UPDATE sessions SET server_host = ?, server_port = ?, bot_nickname = ? WHERE user_id = ?',
+        db.run(
+            'UPDATE sessions SET server_host = ?, server_port = ?, bot_nickname = ? WHERE user_id = ?',
             [host, port, nickname, chatId]
         );
         
@@ -283,8 +341,7 @@ bot.onText(/\/disconnect/, (msg) => {
 
 // Команда /status
 bot.onText(/\/status/, (msg) => {
-    const chatId = msg.chat.id;
-    
+    const chatId = msg.chat.id;    
     db.get('SELECT * FROM sessions WHERE user_id = ?', [chatId], (err, row) => {
         if (!row) {
             bot.sendMessage(chatId, '❌ Вы не зарегистрированы. Используйте /start');
@@ -292,7 +349,8 @@ bot.onText(/\/status/, (msg) => {
         }
         
         const isActive = activeBots.has(chatId);
-        let status = `📊 <b>Статус бота:</b>\n\n`;        status += `👤 Ник: ${row.bot_nickname || 'не установлен'}\n`;
+        let status = `📊 <b>Статус бота:</b>\n\n`;
+        status += `👤 Ник: ${row.bot_nickname || 'не установлен'}\n`;
         status += `🖥 Сервер: ${row.server_host || 'не подключен'}:${row.server_port || ''}\n`;
         status += `📦 Версия: ${row.server_version || 'не определена'}\n`;
         status += `🔌 Статус: ${isActive ? '🟢 Онлайн' : '🔴 Оффлайн'}`;
@@ -332,23 +390,37 @@ bot.on('message', (msg) => {
     
     // Отправляем сообщение в Minecraft чат
     if (mcBot && mcBot.entity) {
-        mcBot.chat(msg.text);
+        mcBot.chat(msg.text);    }
+});
+
+// Запуск бота с инициализацией БД
+async function startBot() {
+    console.log('🚀 Запуск бота...');
+    
+    try {
+        await initDatabase();
+        
+        // Восстановление сессий
+        console.log('🔄 Восстанавливаю сессии...');
+        db.all('SELECT * FROM sessions WHERE is_active = 1 AND server_host IS NOT NULL', [], (err, rows) => {
+            if (err) {
+                console.error('Ошибка восстановления:', err);
+                return;
+            }
+            
+            console.log(`🔄 Найдено ${rows.length} активных сессий`);
+            
+            rows.forEach(row => {
+                console.log(`[${row.user_id}] Восстановлена: ${row.server_host}:${row.server_port}`);
+                connectToServer(row.user_id, row.server_host, row.server_port, row.bot_nickname);
+            });
+        });
+        
+        console.log('✅ Бот запущен!');
+    } catch (err) {
+        console.error('❌ Критическая ошибка запуска:', err);
+        process.exit(1);
     }
-});
+}
 
-// Восстановление сессий при запуске
-console.log('🔄 Восстанавливаю сессии...');
-db.all('SELECT * FROM sessions WHERE is_active = 1 AND server_host IS NOT NULL', [], (err, rows) => {
-    if (err) {
-        console.error('Ошибка восстановления:', err);
-        return;    }
-    
-    console.log(`🔄 Найдено ${rows.length} активных сессий`);
-    
-    rows.forEach(row => {
-        console.log(`[${row.user_id}] Восстановлена: ${row.server_host}:${row.server_port}`);
-        connectToServer(row.user_id, row.server_host, row.server_port, row.bot_nickname);
-    });
-});
-
-console.log('🚀 Бот запущен...');
+startBot();
