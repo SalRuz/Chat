@@ -16,6 +16,45 @@ const db = new sqlite3.Database('/app/data/bot.db');
 
 const activeBots = new Map();
 
+// Маппинг нестандартных версий серверов на стандартные версии Minecraft
+const VERSION_MAPPING = {
+    // Aternos Spigot версии
+    'Spigot 26.1.2': '1.21.4',
+    'Spigot 26.1.1': '1.21.3',
+    'Spigot 26.1': '1.21.1',
+    'Spigot 26.0': '1.21',
+    // Paper версии
+    'Paper 1.21.4': '1.21.4',
+    'Paper 1.21.3': '1.21.3',
+    'Paper 1.21.1': '1.21.1',
+    'Paper 1.21': '1.21',
+    // Purpur
+    'Purpur 1.21.4': '1.21.4',
+    'Purpur 1.21.3': '1.21.3',
+    'Purpur 1.21.1': '1.21.1',
+    // Fabric/Forge
+    'Fabric 1.21.4': '1.21.4',
+    'Forge 1.21.4': '1.21.4'
+};
+
+// Функция нормализации версии
+function normalizeVersion(rawVersion) {
+    // Проверяем маппинг
+    if (VERSION_MAPPING[rawVersion]) {
+        console.log(`🔄 Версия "${rawVersion}" преобразована в "${VERSION_MAPPING[rawVersion]}"`);
+        return VERSION_MAPPING[rawVersion];
+    }
+    
+    // Пытаемся извлечь версию из строки (например, из "Spigot 26.1.2" пытаемся получить что-то похожее)
+    const versionMatch = rawVersion.match(/(\d+\.\d+(?:\.\d+)?)/);
+    if (versionMatch) {        const extracted = versionMatch[1];
+        console.log(`🔍 Извлечена версия: ${extracted} из "${rawVersion}"`);
+        return extracted;
+    }
+    
+    return rawVersion;
+}
+
 // Функция для безопасного добавления колонки
 function addColumnIfNotExists(tableName, columnName, columnType, defaultValue = null) {
     return new Promise((resolve) => {
@@ -47,7 +86,8 @@ function addColumnIfNotExists(tableName, columnName, columnType, defaultValue = 
 }
 
 // Инициализация базы данных с миграцией
-async function initDatabase() {    return new Promise((resolve, reject) => {
+async function initDatabase() {
+    return new Promise((resolve, reject) => {
         db.run(`CREATE TABLE IF NOT EXISTS sessions (
             user_id INTEGER PRIMARY KEY,
             username TEXT,
@@ -55,8 +95,9 @@ async function initDatabase() {    return new Promise((resolve, reject) => {
             server_host TEXT,
             server_port INTEGER,
             server_version TEXT,
-            bot_nickname TEXT,
-            is_active INTEGER DEFAULT 0
+            manual_version TEXT,
+            bot_nickname TEXT,            is_active INTEGER DEFAULT 0,
+            mute_chat INTEGER DEFAULT 0
         )`, (err) => {
             if (err) return reject(err);
             
@@ -80,10 +121,12 @@ async function initDatabase() {    return new Promise((resolve, reject) => {
                     try {
                         await addColumnIfNotExists('sessions', 'is_active', 'INTEGER', 0);
                         await addColumnIfNotExists('sessions', 'server_version', 'TEXT');
+                        await addColumnIfNotExists('sessions', 'manual_version', 'TEXT');
                         await addColumnIfNotExists('sessions', 'bot_nickname', 'TEXT');
                         await addColumnIfNotExists('sessions', 'server_host', 'TEXT');
                         await addColumnIfNotExists('sessions', 'server_port', 'INTEGER');
                         await addColumnIfNotExists('sessions', 'is_owner', 'INTEGER', 0);
+                        await addColumnIfNotExists('sessions', 'mute_chat', 'INTEGER', 0);
                         
                         console.log('✅ База данных готова');
                         resolve();
@@ -96,13 +139,13 @@ async function initDatabase() {    return new Promise((resolve, reject) => {
         });
     });
 }
+
 // Функция автоматического определения версии сервера
 async function detectServerVersion(host, port) {
     return new Promise((resolve, reject) => {
         console.log(`🔍 Определяю версию сервера ${host}:${port}...`);
         
-        mc.ping({
-            host: host,
+        mc.ping({            host: host,
             port: port,
             closeTimeout: 5000,
             noPongTimeout: 5000
@@ -114,9 +157,10 @@ async function detectServerVersion(host, port) {
             }
             
             if (response && response.version) {
-                const version = response.version.name;
-                console.log(`✅ Обнаружена версия: ${version}`);
-                resolve(version);
+                const rawVersion = response.version.name;
+                const normalizedVersion = normalizeVersion(rawVersion);
+                console.log(`✅ Обнаружена версия: ${rawVersion} → использую: ${normalizedVersion}`);
+                resolve(normalizedVersion);
             } else {
                 reject(new Error('Сервер не вернул информацию о версии'));
             }
@@ -125,9 +169,16 @@ async function detectServerVersion(host, port) {
 }
 
 // Функция подключения к серверу
-async function connectToServer(userId, host, port, nickname) {
+async function connectToServer(userId, host, port, nickname, forceVersion = null) {
     try {
-        const version = await detectServerVersion(host, port);
+        let version;
+        
+        if (forceVersion) {
+            version = forceVersion;
+            console.log(`[${userId}] Используется ручная версия: ${version}`);
+        } else {
+            version = await detectServerVersion(host, port);
+        }
         
         console.log(`[${userId}] Подключение к ${host}:${port}, версия: ${version}, ник: ${nickname}`);
         
@@ -143,29 +194,41 @@ async function connectToServer(userId, host, port, nickname) {
             if (mcBot.entity && mcBot.physicsEnabled) {
                 mcBot.setControlState('jump', true);
                 setTimeout(() => mcBot.setControlState('jump', false), 500);
-            }
-        }, 1500);
-                mcBot.on('spawn', () => {
+            }        }, 1500);
+        
+        mcBot.on('spawn', () => {
             console.log(`[${userId}] ✅ Бот заспавнился на сервере!`);
-            sendToTelegram(userId, `✅ Бот успешно зашел на сервер ${host}:${port}\n Версия: ${version}\n👤 Ник: ${nickname}`);
+            sendToTelegram(userId, `✅ Бот успешно зашел на сервер ${host}:${port}\n📦 Версия: ${version}\n👤 Ник: ${nickname}`);
             db.run('UPDATE sessions SET server_version = ? WHERE user_id = ?', [version, userId]);
         });
         
         mcBot.on('chat', (username, message) => {
             if (username !== nickname) {
-                sendToTelegram(userId, `💬 <b>${username}:</b> ${escapeHtml(message)}`, 'HTML');
+                db.get('SELECT mute_chat FROM sessions WHERE user_id = ?', [userId], (err, row) => {
+                    if (!err && row && row.mute_chat === 0) {
+                        sendToTelegram(userId, `💬 <b>${username}:</b> ${escapeHtml(message)}`, 'HTML');
+                    }
+                });
             }
         });
         
         mcBot.on('playerJoined', (player) => {
             if (player.username !== nickname) {
-                sendToTelegram(userId, `➕ <b>${player.username}</b> зашел на сервер`, 'HTML');
+                db.get('SELECT mute_chat FROM sessions WHERE user_id = ?', [userId], (err, row) => {
+                    if (!err && row && row.mute_chat === 0) {
+                        sendToTelegram(userId, `➕ <b>${player.username}</b> зашел на сервер`, 'HTML');
+                    }
+                });
             }
         });
         
         mcBot.on('playerLeft', (player) => {
             if (player.username !== nickname) {
-                sendToTelegram(userId, `➖ <b>${player.username}</b> вышел с сервера`, 'HTML');
+                db.get('SELECT mute_chat FROM sessions WHERE user_id = ?', [userId], (err, row) => {
+                    if (!err && row && row.mute_chat === 0) {
+                        sendToTelegram(userId, `➖ <b>${player.username}</b> вышел с сервера`, 'HTML');
+                    }
+                });
             }
         });
         
@@ -180,8 +243,7 @@ async function connectToServer(userId, host, port, nickname) {
         });
         
         mcBot.on('error', (err) => {
-            console.error(`[${userId}] Ошибка:`, err.message);
-            sendToTelegram(userId, ` Ошибка подключения: ${err.message}`);
+            console.error(`[${userId}] Ошибка:`, err.message);            sendToTelegram(userId, `❌ Ошибка подключения: ${err.message}\n\nПопробуйте задать версию вручную: /version 1.21.4`);
         });
         
         mcBot.on('end', () => {
@@ -194,7 +256,8 @@ async function connectToServer(userId, host, port, nickname) {
         db.run('UPDATE sessions SET is_active = 1 WHERE user_id = ?', [userId]);
         
     } catch (err) {
-        console.error(`[${userId}] Ошибка подключения:`, err.message);        sendToTelegram(userId, ` Не удалось подключиться: ${err.message}`);
+        console.error(`[${userId}] Ошибка подключения:`, err.message);
+        sendToTelegram(userId, `❌ Не удалось подключиться: ${err.message}\n\nПопробуйте задать версию вручную:\n/version 1.21.4 (или другую актуальную версию)`);
     }
 }
 
@@ -229,8 +292,7 @@ function escapeHtml(text) {
 }
 
 bot.onText(/\/start/, (msg) => {
-    const chatId = msg.chat.id;
-    const username = msg.from.username || msg.from.first_name;
+    const chatId = msg.chat.id;    const username = msg.from.username || msg.from.first_name;
     
     db.get('SELECT * FROM sessions WHERE user_id = ?', [chatId], (err, row) => {
         if (err) {
@@ -243,16 +305,19 @@ bot.onText(/\/start/, (msg) => {
             db.run(
                 'INSERT INTO sessions (user_id, username, is_owner) VALUES (?, ?, ?)',
                 [chatId, username, isFirstUser ? 1 : 0]
-            );            
+            );
+            
             bot.sendMessage(chatId, 
                 `👋 Привет, ${username}!\n\n` +
                 `Я бот для управления Minecraft через Telegram.\n\n` +
-                ` <b>Команды:</b>\n` +
-                `/connect {host} {port} - подключиться к серверу\n` +
+                `📋 <b>Команды:</b>\n` +
+                `/connect {host}:{port} - подключиться к серверу\n` +
                 `/disconnect - отключиться\n` +
                 `/status - статус бота\n` +
-                `/nick {ник} - установить ник\n\n` +
-                `Просто пиши сообщения, чтобы общаться в Minecraft чате!`,
+                `/nick {ник} - установить ник\n` +
+                `/version {ver} - задать версию вручную (например: /version 1.21.4)\n` +
+                `/mute - вкл/выкл уведомления из чата\n\n` +
+                `💡 Если автоопределение версии не работает, используйте /version для ручного указания версии Minecraft.`,
                 { parse_mode: 'HTML' }
             );
         } else {
@@ -267,20 +332,17 @@ bot.onText(/\/connect (.+)/, (msg, match) => {
     
     let host, port;
     
-    // Проверяем, есть ли порт в адресе (разделен двоеточием)
     if (input.includes(':')) {
         const parts = input.split(':');
         host = parts[0];
         port = parseInt(parts[1]);
     } else {
-        // Если порта нет, используем дефолтный
         const args = input.split(' ');
         host = args[0];
         port = args[1] ? parseInt(args[1]) : 25565;
     }
-    
-    if (!host) {
-        bot.sendMessage(chatId, ' Использование: /connect {host} [port]\nПример: /connect example.com:25565');
+        if (!host) {
+        bot.sendMessage(chatId, '❌ Использование: /connect {host}:{port}\nПример: /connect example.com:25565');
         return;
     }
     
@@ -289,16 +351,15 @@ bot.onText(/\/connect (.+)/, (msg, match) => {
         return;
     }
     
-    // Получаем ник пользователя
-    db.get('SELECT bot_nickname FROM sessions WHERE user_id = ?', [chatId], (err, row) => {
+    db.get('SELECT bot_nickname, manual_version FROM sessions WHERE user_id = ?', [chatId], (err, row) => {
         const nickname = (row && row.bot_nickname) || `User_bot_${Math.floor(Math.random() * 10000)}`;
-                // Сохраняем сервер
+        const manualVersion = row && row.manual_version ? row.manual_version : null;
+        
         db.run(
             'UPDATE sessions SET server_host = ?, server_port = ?, bot_nickname = ? WHERE user_id = ?',
             [host, port, nickname, chatId]
         );
         
-        // Сохраняем в active_servers
         db.get('SELECT * FROM active_servers WHERE owner_id = ?', [chatId], (err, activeRow) => {
             if (activeRow) {
                 db.run(
@@ -313,8 +374,13 @@ bot.onText(/\/connect (.+)/, (msg, match) => {
             }
         });
         
-        bot.sendMessage(chatId, `🔄 Подключаюсь к ${host}:${port}...\n🔍 Автоматически определяю версию...`);
-        connectToServer(chatId, host, port, nickname);
+        if (manualVersion) {
+            bot.sendMessage(chatId, `🔄 Подключаюсь к ${host}:${port}...\n📦 Используется ручная версия: ${manualVersion}`);
+            connectToServer(chatId, host, port, nickname, manualVersion);
+        } else {
+            bot.sendMessage(chatId, `🔄 Подключаюсь к ${host}:${port}...\n🔍 Автоматически определяю версию...`);
+            connectToServer(chatId, host, port, nickname);
+        }
     });
 });
 
@@ -324,8 +390,7 @@ bot.onText(/\/disconnect/, (msg) => {
         cleanupBot(chatId);
         bot.sendMessage(chatId, '✅ Бот отключен от сервера');
     } else {
-        bot.sendMessage(chatId, '❌ Бот не подключен к серверу');
-    }
+        bot.sendMessage(chatId, '❌ Бот не подключен к серверу');    }
 });
 
 bot.onText(/\/status/, (msg) => {
@@ -337,11 +402,15 @@ bot.onText(/\/status/, (msg) => {
         }
         
         const isActive = activeBots.has(chatId);
+        const muteStatus = row.mute_chat === 1 ? '🔇 Выключены' : '🔔 Включены';
+        const manualVersion = row.manual_version ? `\n📦 Ручная версия: ${row.manual_version}` : '';
         let status = `📊 <b>Статус бота:</b>\n\n`;
         status += `👤 Ник: ${row.bot_nickname || 'не установлен'}\n`;
         status += `🖥 Сервер: ${row.server_host || 'не подключен'}:${row.server_port || ''}\n`;
-        status += `📦 Версия: ${row.server_version || 'не определена'}\n`;
-        status += `🔌 Статус: ${isActive ? ' Онлайн' : '🔴 Оффлайн'}`;        
+        status += `📦 Версия: ${row.server_version || 'не определена'}${manualVersion}\n`;
+        status += `🔌 Статус: ${isActive ? '🟢 Онлайн' : '🔴 Оффлайн'}\n`;
+        status += `🔔 Уведомления: ${muteStatus}`;
+        
         bot.sendMessage(chatId, status, { parse_mode: 'HTML' });
     });
 });
@@ -359,6 +428,53 @@ bot.onText(/\/nick (.+)/, (msg, match) => {
     bot.sendMessage(chatId, `✅ Ник изменен на: ${nickname}`);
 });
 
+// Команда /version - ручное задание версии
+bot.onText(/\/version (.+)/, (msg, match) => {
+    const chatId = msg.chat.id;
+    const version = match[1].trim();
+    
+    // Валидация формата версии
+    const versionRegex = /^\d+\.\d+(?:\.\d+)?$/;
+    if (!versionRegex.test(version)) {
+        bot.sendMessage(chatId, '❌ Неверный формат версии. Используйте формат: 1.21.4 или 1.21');
+        return;
+    }
+        db.run('UPDATE sessions SET manual_version = ? WHERE user_id = ?', [version, chatId]);
+    bot.sendMessage(chatId, 
+        `✅ Версия установлена: ${version}\n\n` +
+        `Теперь при подключении через /connect будет использоваться эта версия вместо автоопределения.\n\n` +
+        `Чтобы вернуться к автоопределению, используйте: /version auto`
+    );
+});
+
+// Команда /version auto - сброс ручной версии
+bot.onText(/\/version auto$/, (msg) => {
+    const chatId = msg.chat.id;
+    db.run('UPDATE sessions SET manual_version = NULL WHERE user_id = ?', [chatId]);
+    bot.sendMessage(chatId, '✅ Ручная версия сброшена. Теперь будет использоваться автоопределение.');
+});
+
+// Команда /mute
+bot.onText(/\/mute$/, (msg) => {
+    const chatId = msg.chat.id;
+    
+    db.get('SELECT mute_chat FROM sessions WHERE user_id = ?', [chatId], (err, row) => {
+        if (err || !row) {
+            bot.sendMessage(chatId, '❌ Сначала используйте /start');
+            return;
+        }
+        
+        const newMuteStatus = row.mute_chat === 1 ? 0 : 1;
+        db.run('UPDATE sessions SET mute_chat = ? WHERE user_id = ?', [newMuteStatus, chatId]);
+        
+        if (newMuteStatus === 1) {
+            bot.sendMessage(chatId, '🔇 Уведомления из чата Minecraft отключены.\nВы по-прежнему можете писать в чат, но сообщения от других игроков не будут приходить.');
+        } else {
+            bot.sendMessage(chatId, '🔔 Уведомления из чата Minecraft включены.');
+        }
+    });
+});
+
 bot.on('message', (msg) => {
     if (!msg.text || msg.text.startsWith('/')) return;
     
@@ -372,7 +488,6 @@ bot.on('message', (msg) => {
         mcBot.chat(msg.text);
     }
 });
-
 async function startBot() {
     console.log('🚀 Запуск бота...');
     try {
@@ -388,12 +503,14 @@ async function startBot() {
             console.log(`🔄 Найдено ${rows.length} активных сессий`);
             rows.forEach(row => {
                 console.log(`[${row.user_id}] Восстановлена: ${row.server_host}:${row.server_port}`);
-                connectToServer(row.user_id, row.server_host, row.server_port, row.bot_nickname);
+                const manualVersion = row.manual_version || null;
+                connectToServer(row.user_id, row.server_host, row.server_port, row.bot_nickname, manualVersion);
             });
-        });        
+        });
+        
         console.log('✅ Бот запущен!');
     } catch (err) {
-        console.error(' Критическая ошибка запуска:', err);
+        console.error('❌ Критическая ошибка запуска:', err);
         process.exit(1);
     }
 }
