@@ -53,7 +53,11 @@ TRANSLATIONS = {
         'allow_buyout_question': "Allow forced property buyout?",
         'allow_buyout': "✅ Allow Buyout",
         'no_buyout': "❌ No Buyout",
-        'room_info': "🏠 **Ruzopoly Room**\n🔑 Code: `{}`\n🔒 Password: `{}`\n👥 Players: {}/{}\n💼 Buyout: {}\n\n{}\n\nWaiting for players...",
+        'choose_turn_time': "⏰ Choose turn time:",
+        'seconds_15': "15 seconds",
+        'seconds_30': "30 seconds",
+        'seconds_60': "1 minute",
+        'room_info': "🏠 **Ruzopoly Room**\n🔑 Code: `{}`\n🔒 Password: `{}`\n👥 Players: {}/{}\n💼 Buyout: {}\n⏰ Turn time: {}s\n\n{}\n\nWaiting for players...",
         'enabled': 'Enabled',
         'disabled': 'Disabled',
         'none': 'none',
@@ -129,7 +133,11 @@ TRANSLATIONS = {
         'allow_buyout_question': "Разрешить принудительный выкуп территорий?",
         'allow_buyout': "✅ Разрешить",
         'no_buyout': "❌ Запретить",
-        'room_info': "🏠 **Комната Ruzopoly**\n🔑 Код: `{}`\n🔒 Пароль: `{}`\n👥 Игроки: {}/{}\n💼 Выкуп: {}\n\n{}\n\nОжидаем игроков...",
+        'choose_turn_time': "⏰ Выберите время на ход:",
+        'seconds_15': "15 секунд",
+        'seconds_30': "30 секунд",
+        'seconds_60': "1 минута",
+        'room_info': "🏠 **Комната Ruzopoly**\n🔑 Код: `{}`\n🔒 Пароль: `{}`\n👥 Игроки: {}/{}\n💼 Выкуп: {}\n⏰ Время хода: {}с\n\n{}\n\nОжидаем игроков...",
         'enabled': 'Включен',
         'disabled': 'Выключен',
         'none': 'нет',
@@ -235,6 +243,9 @@ def init_db():
         if 'allow_buyout' not in columns:
             cursor.execute("ALTER TABLE rooms ADD COLUMN allow_buyout BOOLEAN DEFAULT 1")
             print("✅ Added 'allow_buyout' column to rooms table")
+        if 'turn_time' not in columns:
+            cursor.execute("ALTER TABLE rooms ADD COLUMN turn_time INTEGER DEFAULT 30")
+            print("✅ Added 'turn_time' column to rooms table")
     else:
         cursor.execute('''
             CREATE TABLE rooms (
@@ -252,6 +263,7 @@ def init_db():
                 language TEXT DEFAULT 'en',
                 player_ids TEXT DEFAULT '[]',
                 allow_buyout BOOLEAN DEFAULT 1,
+                turn_time INTEGER DEFAULT 30,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -285,7 +297,6 @@ def init_db():
         )
     ''')
     
-    # Добавляем колонку houses если её нет
     cursor.execute("PRAGMA table_info(ownership)")
     ownership_columns = [column[1] for column in cursor.fetchall()]
     if 'houses' not in ownership_columns:
@@ -296,6 +307,17 @@ def init_db():
         CREATE TABLE IF NOT EXISTS user_room (
             user_id INTEGER PRIMARY KEY,
             room_code TEXT NOT NULL,
+            FOREIGN KEY (room_code) REFERENCES rooms(code)
+        )
+    ''')
+    
+    # Таблица для хранения message_id каждого игрока
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS player_messages (
+            room_code TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            message_id INTEGER NOT NULL,
+            PRIMARY KEY (room_code, user_id),
             FOREIGN KEY (room_code) REFERENCES rooms(code)
         )
     ''')
@@ -409,7 +431,7 @@ class Room:
     max_players: int
     password: Optional[str] = None
     players: Dict[int, Player] = field(default_factory=dict)
-    ownership: Dict[int, Tuple[int, int]] = field(default_factory=dict)  # cell_idx: (owner_id, houses)
+    ownership: Dict[int, Tuple[int, int]] = field(default_factory=dict)
     current_turn: int = 0
     is_started: bool = False
     last_message_id: Optional[int] = None
@@ -420,7 +442,9 @@ class Room:
     language: str = 'en'
     player_ids: Set[int] = field(default_factory=set)
     allow_buyout: bool = True
+    turn_time: int = 30
     event_log: List[str] = field(default_factory=list)
+    player_message_ids: Dict[int, int] = field(default_factory=dict)
 
     def active_players(self) -> List[Player]:
         return [p for p in self.players.values() if p.is_active]
@@ -494,13 +518,13 @@ class Database:
                 """INSERT INTO rooms 
                    (code, creator_id, chat_id, max_players, password, 
                     current_turn, is_started, last_message_id, 
-                    chance_deck, risk_deck, awaiting_buy, language, player_ids, allow_buyout)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    chance_deck, risk_deck, awaiting_buy, language, player_ids, allow_buyout, turn_time)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (room.code, room.creator_id, room.chat_id, room.max_players,
                  room.password, room.current_turn, room.is_started,
                  room.last_message_id, json.dumps(room.chance_deck),
                  json.dumps(room.risk_deck), room.awaiting_buy, room.language,
-                 json.dumps(list(room.player_ids)), room.allow_buyout)
+                 json.dumps(list(room.player_ids)), room.allow_buyout, room.turn_time)
             )
             conn.commit()
             return True
@@ -522,6 +546,7 @@ class Database:
         language = 'en'
         player_ids = set()
         allow_buyout = True
+        turn_time = 30
         
         if len(row) > 11:
             language = row[11] if row[11] else 'en'
@@ -532,6 +557,8 @@ class Database:
                 player_ids = set()
         if len(row) > 13:
             allow_buyout = bool(row[13])
+        if len(row) > 14:
+            turn_time = row[14] if row[14] else 30
 
         room = Room(
             code=row[0], creator_id=row[1], chat_id=row[2],
@@ -540,7 +567,7 @@ class Database:
             chance_deck=json.loads(row[8]) if row[8] else CHANCE_CARDS.copy(),
             risk_deck=json.loads(row[9]) if row[9] else RISK_CARDS.copy(),
             awaiting_buy=row[10], language=language, player_ids=player_ids,
-            allow_buyout=allow_buyout
+            allow_buyout=allow_buyout, turn_time=turn_time
         )
 
         cursor.execute("SELECT * FROM players WHERE room_code = ?", (code,))
@@ -557,6 +584,11 @@ class Database:
             houses = o_row[2] if len(o_row) > 2 else 0
             room.ownership[o_row[0]] = (o_row[1], houses)
 
+        # Загружаем message_id для каждого игрока
+        cursor.execute("SELECT user_id, message_id FROM player_messages WHERE room_code = ?", (code,))
+        for msg_row in cursor.fetchall():
+            room.player_message_ids[msg_row[0]] = msg_row[1]
+
         conn.close()
         return room
 
@@ -567,12 +599,12 @@ class Database:
             conn.execute(
                 """UPDATE rooms SET 
                    current_turn=?, is_started=?, last_message_id=?,
-                   chance_deck=?, risk_deck=?, awaiting_buy=?, language=?, player_ids=?, allow_buyout=?
+                   chance_deck=?, risk_deck=?, awaiting_buy=?, language=?, player_ids=?, allow_buyout=?, turn_time=?
                    WHERE code=?""",
                 (room.current_turn, room.is_started, room.last_message_id,
                  json.dumps(room.chance_deck), json.dumps(room.risk_deck),
                  room.awaiting_buy, room.language, json.dumps(list(room.player_ids)),
-                 room.allow_buyout, room.code)
+                 room.allow_buyout, room.turn_time, room.code)
             )
             conn.commit()
         except sqlite3.OperationalError as e:
@@ -669,6 +701,16 @@ class Database:
             })
         conn.close()
         return rooms
+
+    @staticmethod
+    def set_player_message_id(room_code: str, user_id: int, message_id: int):
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.execute(
+            "INSERT OR REPLACE INTO player_messages (room_code, user_id, message_id) VALUES (?, ?, ?)",
+            (room_code, user_id, message_id)
+        )
+        conn.commit()
+        conn.close()
 
 
 db = Database()
@@ -777,7 +819,6 @@ def render_board(room: Room) -> bytes:
             else:
                 draw.rectangle([x1 + 2, y1 + 2, x1 + 14, y2 - 2], fill=group_col)
 
-        # Рисуем количество домов
         if idx in room.ownership:
             owner_id, houses = room.ownership[idx]
             if houses > 0:
@@ -834,6 +875,7 @@ class CreateRoom(StatesGroup):
     wait_max = State()
     wait_password = State()
     wait_buyout = State()
+    wait_turn_time = State()
 
 
 class JoinRoom(StatesGroup):
@@ -851,8 +893,13 @@ dp.include_router(router)
 
 # ================== ТАЙМЕР ХОДА ==================
 async def turn_timeout(room_code: str):
-    """Автоматический переход хода через 30 секунд"""
-    await asyncio.sleep(30)
+    """Автоматический переход хода через заданное время"""
+    room = db.get_room(room_code)
+    if not room:
+        return
+    
+    await asyncio.sleep(room.turn_time)
+    
     room = db.get_room(room_code)
     if not room or not room.is_started or room.awaiting_buy is None:
         return
@@ -865,13 +912,12 @@ async def turn_timeout(room_code: str):
 
 # ================== ОТПРАВКА ПОЛЯ ==================
 async def send_board_to_all(room: Room, force_update: bool = False):
-    """Отправляет обновленное поле всем игрокам в комнате"""
+    """Редактирует одно сообщение для каждого игрока"""
     img_bytes = render_board(room)
     photo = BufferedInputFile(img_bytes, filename="board.png")
 
     cur = room.current_player()
     
-    # Формируем текст с событиями
     events_text = ""
     if room.event_log:
         events_text = "\n".join(room.event_log[-3:]) + "\n\n"
@@ -889,9 +935,8 @@ async def send_board_to_all(room: Room, force_update: bool = False):
         active_mark = "" if p.is_active else " ❌"
         text += f"{marker} {bot_mark} {p.name}: {p.money} Ruzcoin{active_mark}\n"
 
-    # Отправляем каждому игроку персонально
     for user_id in room.player_ids:
-        if user_id < 0:  # Пропускаем ботов
+        if user_id < 0:
             continue
             
         kb_buttons = []
@@ -905,7 +950,6 @@ async def send_board_to_all(room: Room, force_update: bool = False):
                     callback_data=f"buy_{room.code}")])
                 kb_buttons.append([InlineKeyboardButton(text=t('skip', room.language), callback_data=f"skipbuy_{room.code}")])
                 
-                # Если есть владелец и разрешен выкуп
                 if room.awaiting_buy in room.ownership and room.allow_buyout:
                     owner_id, houses = room.ownership[room.awaiting_buy]
                     if owner_id != cur.user_id and cell.get("group") != "station":
@@ -917,11 +961,10 @@ async def send_board_to_all(room: Room, force_update: bool = False):
             if cur.in_jail:
                 kb_buttons.append([InlineKeyboardButton(text=t('pay_jail', room.language), callback_data=f"payjail_{room.code}")])
             
-            # Кнопки продажи территорий (если игрок в долгах)
             if cur.money < 0:
                 properties = get_player_properties(room, cur.user_id)
                 if properties:
-                    for prop_idx, prop_cell, houses in properties[:3]:  # Показываем первые 3
+                    for prop_idx, prop_cell, houses in properties[:3]:
                         sell_price = calculate_sell_price(prop_cell, houses)
                         kb_buttons.append([InlineKeyboardButton(
                             text=t('sell_property', room.language).format(prop_cell['name']),
@@ -930,9 +973,30 @@ async def send_board_to_all(room: Room, force_update: bool = False):
         kb = InlineKeyboardMarkup(inline_keyboard=kb_buttons) if kb_buttons else None
 
         try:
-            await bot.send_photo(
-                chat_id=user_id, photo=photo, caption=text, parse_mode="Markdown", reply_markup=kb
-            )
+            if user_id in room.player_message_ids:
+                # Редактируем существующее сообщение
+                try:
+                    await bot.edit_message_media(
+                        chat_id=user_id,
+                        message_id=room.player_message_ids[user_id],
+                        media=types.InputMediaPhoto(media=photo, caption=text, parse_mode="Markdown"),
+                        reply_markup=kb
+                    )
+                except Exception as e:
+                    logging.error(f"Error editing message for user {user_id}: {e}")
+                    # Если не удалось отредактировать, отправляем новое
+                    msg = await bot.send_photo(
+                        chat_id=user_id, photo=photo, caption=text, parse_mode="Markdown", reply_markup=kb
+                    )
+                    room.player_message_ids[user_id] = msg.message_id
+                    db.set_player_message_id(room.code, user_id, msg.message_id)
+            else:
+                # Отправляем новое сообщение
+                msg = await bot.send_photo(
+                    chat_id=user_id, photo=photo, caption=text, parse_mode="Markdown", reply_markup=kb
+                )
+                room.player_message_ids[user_id] = msg.message_id
+                db.set_player_message_id(room.code, user_id, msg.message_id)
         except Exception as e:
             logging.error(f"Error sending board to user {user_id}: {e}")
 
@@ -1108,18 +1172,34 @@ async def msg_password(message: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("buyout_"), StateFilter(CreateRoom.wait_buyout))
 async def cb_buyout_choice(callback: CallbackQuery, state: FSMContext):
+    lang = db.get_user_language(callback.from_user.id)
     allow_buyout = callback.data == "buyout_yes"
+    await state.update_data(allow_buyout=allow_buyout)
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"⏰ {t('seconds_15', lang)}", callback_data="time_15")],
+        [InlineKeyboardButton(text=f"⏰ {t('seconds_30', lang)}", callback_data="time_30")],
+        [InlineKeyboardButton(text=f"⏰ {t('seconds_60', lang)}", callback_data="time_60")],
+    ])
+    await callback.message.edit_text(t('choose_turn_time', lang), reply_markup=kb)
+    await state.set_state(CreateRoom.wait_turn_time)
+
+
+@router.callback_query(F.data.startswith("time_"), StateFilter(CreateRoom.wait_turn_time))
+async def cb_turn_time_choice(callback: CallbackQuery, state: FSMContext):
+    turn_time = int(callback.data.split("_")[1])
     data = await state.get_data()
-    await finalize_room(callback, data.get('password'), data['max_players'], allow_buyout, state)
+    await finalize_room(callback, data.get('password'), data['max_players'], data['allow_buyout'], turn_time, state)
 
 
-async def finalize_room(callback: CallbackQuery, password: Optional[str], max_players: int, allow_buyout: bool, state: FSMContext):
+async def finalize_room(callback: CallbackQuery, password: Optional[str], max_players: int, allow_buyout: bool, turn_time: int, state: FSMContext):
     lang = db.get_user_language(callback.from_user.id)
     code = generate_code()
     room = Room(
         code=code, creator_id=callback.from_user.id,
         chat_id=callback.from_user.id, max_players=max_players,
-        password=password, language=lang, allow_buyout=allow_buyout
+        password=password, language=lang, allow_buyout=allow_buyout,
+        turn_time=turn_time
     )
     color = get_available_color(room)
     player = Player(user_id=callback.from_user.id, name=callback.from_user.full_name, color=color)
@@ -1150,6 +1230,7 @@ async def show_lobby(message_or_cb, room: Room):
         len(room.players),
         room.max_players,
         buyout_status,
+        room.turn_time,
         players_text
     )
     
@@ -1323,6 +1404,8 @@ async def do_join(message: Message, room: Room, state: FSMContext):
     await show_lobby(message, room)
 
 
+# Продолжение в следующем сообщении из-за ограничения длины...
+
 # ================== ИГРОВАЯ ЛОГИКА ==================
 @router.callback_query(F.data.startswith("roll_"))
 async def cb_roll(callback: CallbackQuery):
@@ -1466,10 +1549,8 @@ async def handle_property(room: Room, player: Player, cell):
             db.update_player(room.code, owner)
             room.add_event(t('rent_paid', room.language).format(player.name, rent, owner.name, cell['name']))
             
-            # Проверяем долги
             await check_player_debt(room, player)
             
-            # Если разрешен выкуп и это не станция
             if room.allow_buyout and cell.get("group") != "station":
                 room.awaiting_buy = idx
                 db.update_room(room)
@@ -1498,7 +1579,6 @@ async def handle_property(room: Room, player: Player, cell):
                 db.update_player(room.code, player)
                 room.add_event(t('property_bought', room.language).format(player.name, cell['name'], cell['price']))
                 
-                # Проверяем владение всеми станциями
                 if check_all_stations_owned(room, player.user_id):
                     await end_game(room, player, 'stations')
                     return
@@ -1543,12 +1623,10 @@ async def check_player_debt(room: Room, player: Player):
         total_sell_value = sum(calculate_sell_price(cell, houses) for _, cell, houses in properties)
         
         if total_sell_value + player.money < 0:
-            # Игрок не может погасить долг
             player.is_active = False
             db.update_player(room.code, player)
             room.add_event(t('player_eliminated', room.language).format(player.name))
             
-            # Передаём все территории банку (удаляем владение)
             for prop_idx, _, _ in properties:
                 del room.ownership[prop_idx]
                 db.remove_ownership(room.code, prop_idx)
@@ -1645,7 +1723,6 @@ async def cb_buy(callback: CallbackQuery):
     await callback.answer()
     room.add_event(t('property_bought', room.language).format(cur.name, cell['name'], cell['price']))
     
-    # Проверяем владение всеми станциями
     if check_all_stations_owned(room, cur.user_id):
         await end_game(room, cur, 'stations')
         return
@@ -1740,7 +1817,6 @@ async def cb_sell(callback: CallbackQuery):
     await callback.answer()
     room.add_event(t('property_sold', room.language).format(cur.name, cell['name'], sell_price))
     
-    # Проверяем, погашен ли долг
     if cur.money >= 0:
         await send_board_to_all(room)
         await end_turn(room)
