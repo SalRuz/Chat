@@ -857,7 +857,7 @@ if not room_code:
         return
     
     room = db.get_room(room_code)
-    if not room or not room.is_started:
+if not room or not room.is_started:
         await message.answer("Игра не начата.")
         return
     
