@@ -311,7 +311,6 @@ def init_db():
         )
     ''')
     
-    # Таблица для хранения message_id каждого игрока
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS player_messages (
             room_code TEXT NOT NULL,
@@ -438,6 +437,7 @@ class Room:
     chance_deck: list = field(default_factory=lambda: CHANCE_CARDS.copy())
     risk_deck: list = field(default_factory=lambda: RISK_CARDS.copy())
     awaiting_buy: Optional[int] = None
+    awaiting_buyout: bool = False  # Новое поле для различия покупки и выкупа
     turn_timer_task: Optional[asyncio.Task] = None
     language: str = 'en'
     player_ids: Set[int] = field(default_factory=set)
@@ -584,7 +584,6 @@ class Database:
             houses = o_row[2] if len(o_row) > 2 else 0
             room.ownership[o_row[0]] = (o_row[1], houses)
 
-        # Загружаем message_id для каждого игрока
         cursor.execute("SELECT user_id, message_id FROM player_messages WHERE room_code = ?", (code,))
         for msg_row in cursor.fetchall():
             room.player_message_ids[msg_row[0]] = msg_row[1]
@@ -945,18 +944,22 @@ async def send_board_to_all(room: Room, force_update: bool = False):
             
             if room.awaiting_buy is not None:
                 cell = BOARD[room.awaiting_buy]
-                kb_buttons.append([InlineKeyboardButton(
-                    text=t('buy_property', room.language).format(cell['name'], cell['price']),
-                    callback_data=f"buy_{room.code}")])
-                kb_buttons.append([InlineKeyboardButton(text=t('skip', room.language), callback_data=f"skipbuy_{room.code}")])
                 
-                if room.awaiting_buy in room.ownership and room.allow_buyout:
+                # Проверяем, является ли это выкупом или покупкой
+                if room.awaiting_buyout:
+                    # Только кнопка выкупа
                     owner_id, houses = room.ownership[room.awaiting_buy]
-                    if owner_id != cur.user_id and cell.get("group") != "station":
-                        buyout_price = calculate_buyout_price(cell, houses)
-                        kb_buttons.append([InlineKeyboardButton(
-                            text=t('buyout_property', room.language).format(cell['name'], buyout_price),
-                            callback_data=f"buyout_{room.code}")])
+                    buyout_price = calculate_buyout_price(cell, houses)
+                    kb_buttons.append([InlineKeyboardButton(
+                        text=t('buyout_property', room.language).format(cell['name'], buyout_price),
+                        callback_data=f"buyout_{room.code}")])
+                    kb_buttons.append([InlineKeyboardButton(text=t('skip', room.language), callback_data=f"skipbuy_{room.code}")])
+                else:
+                    # Только кнопка покупки
+                    kb_buttons.append([InlineKeyboardButton(
+                        text=t('buy_property', room.language).format(cell['name'], cell['price']),
+                        callback_data=f"buy_{room.code}")])
+                    kb_buttons.append([InlineKeyboardButton(text=t('skip', room.language), callback_data=f"skipbuy_{room.code}")])
             
             if cur.in_jail:
                 kb_buttons.append([InlineKeyboardButton(text=t('pay_jail', room.language), callback_data=f"payjail_{room.code}")])
@@ -974,7 +977,6 @@ async def send_board_to_all(room: Room, force_update: bool = False):
 
         try:
             if user_id in room.player_message_ids:
-                # Редактируем существующее сообщение
                 try:
                     await bot.edit_message_media(
                         chat_id=user_id,
@@ -984,14 +986,12 @@ async def send_board_to_all(room: Room, force_update: bool = False):
                     )
                 except Exception as e:
                     logging.error(f"Error editing message for user {user_id}: {e}")
-                    # Если не удалось отредактировать, отправляем новое
                     msg = await bot.send_photo(
                         chat_id=user_id, photo=photo, caption=text, parse_mode="Markdown", reply_markup=kb
                     )
                     room.player_message_ids[user_id] = msg.message_id
                     db.set_player_message_id(room.code, user_id, msg.message_id)
             else:
-                # Отправляем новое сообщение
                 msg = await bot.send_photo(
                     chat_id=user_id, photo=photo, caption=text, parse_mode="Markdown", reply_markup=kb
                 )
@@ -1404,8 +1404,6 @@ async def do_join(message: Message, room: Room, state: FSMContext):
     await show_lobby(message, room)
 
 
-# Продолжение в следующем сообщении из-за ограничения длины...
-
 # ================== ИГРОВАЯ ЛОГИКА ==================
 @router.callback_query(F.data.startswith("roll_"))
 async def cb_roll(callback: CallbackQuery):
@@ -1551,8 +1549,10 @@ async def handle_property(room: Room, player: Player, cell):
             
             await check_player_debt(room, player)
             
+            # Проверяем возможность выкупа
             if room.allow_buyout and cell.get("group") != "station":
                 room.awaiting_buy = idx
+                room.awaiting_buyout = True  # Это выкуп, а не покупка
                 db.update_room(room)
                 room.turn_timer_task = asyncio.create_task(turn_timeout(room.code))
             
@@ -1561,8 +1561,10 @@ async def handle_property(room: Room, player: Player, cell):
             if not room.allow_buyout or cell.get("group") == "station":
                 await end_turn(room)
     else:
+        # Свободная территория
         if player.money >= cell["price"]:
             room.awaiting_buy = idx
+            room.awaiting_buyout = False  # Это покупка, а не выкуп
             db.update_room(room)
             room.add_event(t('free_property', room.language).format(cell['name'], cell['price'], cell['rent']))
             await send_board_to_all(room)
@@ -1575,6 +1577,7 @@ async def handle_property(room: Room, player: Player, cell):
                 room.ownership[idx] = (player.user_id, 0)
                 db.set_ownership(room.code, idx, player.user_id, 0)
                 room.awaiting_buy = None
+                room.awaiting_buyout = False
                 db.update_room(room)
                 db.update_player(room.code, player)
                 room.add_event(t('property_bought', room.language).format(player.name, cell['name'], cell['price']))
@@ -1662,6 +1665,7 @@ async def end_turn(room: Room):
         room.turn_timer_task.cancel()
     
     room.awaiting_buy = None
+    room.awaiting_buyout = False
     room.next_turn()
     db.update_room(room)
     
@@ -1703,7 +1707,7 @@ async def cb_buy(callback: CallbackQuery):
         await callback.answer(t('not_your_turn', lang), show_alert=True)
         return
     
-    if room.awaiting_buy is None:
+    if room.awaiting_buy is None or room.awaiting_buyout:
         await callback.answer(t('nothing_to_buy', lang), show_alert=True)
         return
     
@@ -1717,6 +1721,7 @@ async def cb_buy(callback: CallbackQuery):
     room.ownership[idx] = (cur.user_id, 0)
     db.set_ownership(room.code, idx, cur.user_id, 0)
     room.awaiting_buy = None
+    room.awaiting_buyout = False
     db.update_room(room)
     db.update_player(room.code, cur)
     
@@ -1745,7 +1750,7 @@ async def cb_buyout(callback: CallbackQuery):
         await callback.answer(t('not_your_turn', lang), show_alert=True)
         return
     
-    if room.awaiting_buy is None:
+    if room.awaiting_buy is None or not room.awaiting_buyout:
         await callback.answer(t('nothing_to_buy', lang), show_alert=True)
         return
     
@@ -1769,6 +1774,7 @@ async def cb_buyout(callback: CallbackQuery):
     room.ownership[idx] = (cur.user_id, houses)
     db.set_ownership(room.code, idx, cur.user_id, houses)
     room.awaiting_buy = None
+    room.awaiting_buyout = False
     db.update_room(room)
     db.update_player(room.code, cur)
     db.update_player(room.code, owner)
@@ -1838,6 +1844,7 @@ async def cb_skip_buy(callback: CallbackQuery):
         return
     
     room.awaiting_buy = None
+    room.awaiting_buyout = False
     db.update_room(room)
     await callback.answer()
     room.add_event(t('purchase_declined', room.language).format(callback.from_user.full_name))
