@@ -641,7 +641,7 @@ async def finalize_room(callback: CallbackQuery, password: Optional[str], max_pl
         chat_id=callback.message.chat.id, max_players=max_players,
         password=password
     )
-        color = get_available_color(room)
+    color = get_available_color(room)
     player = Player(user_id=callback.from_user.id, name=callback.from_user.full_name, color=color)
     room.players[player.user_id] = player
     
@@ -900,7 +900,8 @@ async def do_roll(room: Room):
         return
 
     d1, d2 = random.randint(1, 6), random.randint(1, 6)
-    total = d1 + d2    await send_message(room, f"🎲 **{cur.name}** бросил кубики: **{d1} + {d2} = {total}**")
+    total = d1 + d2    
+    await send_message(room, f"🎲 **{cur.name}** бросил кубики: **{d1} + {d2} = {total}**")
     await move_player(room, cur, total)
 
 
