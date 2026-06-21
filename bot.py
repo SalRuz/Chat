@@ -194,7 +194,8 @@ class Player:
     position: int = 0
     color: str = "#FFFFFF"
     is_bot: bool = False
-    in_jail: bool = False    jail_turns: int = 0
+    in_jail: bool = False    
+    jail_turns: int = 0
     is_active: bool = True
 
     def pay(self, amount: int):
@@ -243,7 +244,8 @@ class Room:
 class Database:
     @staticmethod
     def save_user(user_id: int, username: str):
-        conn = sqlite3.connect(str(DB_PATH))        conn.execute(
+        conn = sqlite3.connect(str(DB_PATH))        
+        conn.execute(
             "INSERT OR REPLACE INTO users (id, username) VALUES (?, ?)",
             (user_id, username)
         )
@@ -292,7 +294,8 @@ class Database:
         )
 
         # Загрузка игроков
-        cursor.execute("SELECT * FROM players WHERE room_code = ?", (code,))        for p_row in cursor.fetchall():
+        cursor.execute("SELECT * FROM players WHERE room_code = ?", (code,))        
+        for p_row in cursor.fetchall():
             room.players[p_row[1]] = Player(
                 user_id=p_row[1], name=p_row[2], money=p_row[3],
                 position=p_row[4], color=p_row[5], is_bot=bool(p_row[6]),
@@ -537,7 +540,8 @@ async def send_board(room: Room, extra_text: str = ""):
         if not cur.is_bot:
             kb_buttons.append([InlineKeyboardButton(text="🎲 Бросить кубики", callback_data=f"roll_{room.code}")])
             if room.awaiting_buy is not None:
-                cell = BOARD[room.awaiting_buy]                kb_buttons.append([InlineKeyboardButton(
+                cell = BOARD[room.awaiting_buy]                
+                kb_buttons.append([InlineKeyboardButton(
                     text=f"💵 Купить {cell['name']} ({cell['price']}₽)",
                     callback_data=f"buy_{room.code}")])
                 kb_buttons.append([InlineKeyboardButton(text="❌ Пропустить", callback_data=f"skipbuy_{room.code}")])
@@ -794,7 +798,8 @@ async def msg_join_password(message: Message, state: FSMContext):
         await state.clear()
         return
     
-    if message.text.strip() != room.password:        await message.answer("❌ Неверный пароль.")
+    if message.text.strip() != room.password:        
+        await message.answer("❌ Неверный пароль.")
         return
     
     await do_join(message, room, state)
@@ -843,7 +848,8 @@ async def cb_roll(callback: CallbackQuery):
 
 @router.message(Command("roll"))
 async def cmd_roll(message: Message):
-    room_code = db.get_user_room(message.from_user.id)    if not room_code:
+    room_code = db.get_user_room(message.from_user.id)    
+if not room_code:
         await message.answer("Вы не в игре.")
         return
     
@@ -990,7 +996,8 @@ async def handle_property(room: Room, player: Player, cell):
                 room.awaiting_buy = None
                 db.update_room(room)
                 db.update_player(room.code, player)
-                await send_board(room, f"✅ {player.name} купил {cell['name']} за {cell['price']} Ruzcoin!")                await end_turn(room)
+                await send_board(room, f"✅ {player.name} купил {cell['name']} за {cell['price']} Ruzcoin!")                
+                await end_turn(room)
         else:
             await send_board(room, f"💸 У {player.name} недостаточно денег для покупки {cell['name']}.")
             await end_turn(room)
@@ -1137,7 +1144,8 @@ async def cmd_buyout(message: Message):
     cell = BOARD[idx]
     price = cell["price"] * 2
     
-    if cur.money < price:        await message.answer(f"Недостаточно Ruzcoin. Нужно: {price}")
+    if cur.money < price:        
+        await message.answer(f"Недостаточно Ruzcoin. Нужно: {price}")
         return
     
     owner_id = room.ownership.get(idx)
