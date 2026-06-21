@@ -851,13 +851,13 @@ async def cb_roll(callback: CallbackQuery):
 
 @router.message(Command("roll"))
 async def cmd_roll(message: Message):
-    room_code = db.get_user_room(message.from_user.id)    
-if not room_code:
+    room_code = db.get_user_room(message.from_user.id)
+    if not room_code:
         await message.answer("Вы не в игре.")
         return
     
     room = db.get_room(room_code)
-if not room or not room.is_started:
+    if not room or not room.is_started:
         await message.answer("Игра не начата.")
         return
     
