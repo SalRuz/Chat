@@ -591,7 +591,8 @@ async def cmd_start(message: Message):
     )
 
 
-@router.callback_query(F.data == "create_room")async def cb_create_room(callback: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data == "create_room")
+async def cb_create_room(callback: CallbackQuery, state: FSMContext):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="2 игрока", callback_data="max_2"),
          InlineKeyboardButton(text="3 игрока", callback_data="max_3")],
@@ -1096,7 +1097,8 @@ async def cb_skip_buy(callback: CallbackQuery):
     await end_turn(room)
 
 
-@router.callback_query(F.data.startswith("payjail_"))async def cb_pay_jail(callback: CallbackQuery):
+@router.callback_query(F.data.startswith("payjail_"))
+async def cb_pay_jail(callback: CallbackQuery):
     code = callback.data.split("_")[1]
     room = db.get_room(code)
     if not room:
@@ -1195,7 +1197,8 @@ async def cmd_board(message: Message):
         return
     
     room = db.get_room(room_code)
-    if not room:        await message.answer("Комната не найдена.")
+    if not room:        
+        await message.answer("Комната не найдена.")
         return
     
     await send_board(room)
