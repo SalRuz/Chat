@@ -28,7 +28,7 @@ load_dotenv()
 API_TOKEN = os.getenv("BOT_TOKEN")
 
 if not API_TOKEN:
-    raise ValueError("❌ BOT_TOKEN не найден в .env файле!")
+    raise ValueError("❌ BOT_TOKEN not found in .env file!")
 
 logging.basicConfig(level=logging.INFO)
 
@@ -38,19 +38,18 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "ruzopoly.db"
 
 def init_db():
-    """Инициализация базы данных"""
+    """Database initialization"""
     conn = sqlite3.connect(str(DB_PATH))
     cursor = conn.cursor()
     
-    # Таблица пользователей
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY,
             username TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP        )
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
     ''')
     
-    # Таблица комнат
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS rooms (
             code TEXT PRIMARY KEY,
@@ -68,7 +67,6 @@ def init_db():
         )
     ''')
     
-    # Таблица игроков в комнатах
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS players (
             room_code TEXT NOT NULL,
@@ -86,7 +84,6 @@ def init_db():
         )
     ''')
     
-    # Таблица владения территориями
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS ownership (
             room_code TEXT NOT NULL,
@@ -96,7 +93,7 @@ def init_db():
             FOREIGN KEY (room_code) REFERENCES rooms(code)
         )
     ''')
-        # Таблица связи пользователь-комната
+    
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS user_room (
             user_id INTEGER PRIMARY KEY,
@@ -107,7 +104,7 @@ def init_db():
     
     conn.commit()
     conn.close()
-    print(f"✅ База данных инициализирована: {DB_PATH}")
+    print(f"✅ Database initialized: {DB_PATH}")
 
 init_db()
 
@@ -119,65 +116,66 @@ GROUP_COLORS_HEX = {
 }
 
 BOARD = [
-    {"name": "СТАРТ", "type": "go"},
-    {"name": "Хлебная", "type": "property", "group": "brown", "price": 60, "rent": 4, "house": 50},
-    {"name": "Казна", "type": "chest"},
-    {"name": "Пекарня", "type": "property", "group": "brown", "price": 60, "rent": 4, "house": 50},
-    {"name": "Налог", "type": "tax", "amount": 200},
-    {"name": "Вокзал Север", "type": "property", "group": "station", "price": 200, "rent": 25},
-    {"name": "Аллея", "type": "property", "group": "lightblue", "price": 100, "rent": 6, "house": 50},
-    {"name": "Шанс", "type": "chance"},
-    {"name": "Площадь", "type": "property", "group": "lightblue", "price": 100, "rent": 6, "house": 50},
-    {"name": "Бульвар", "type": "property", "group": "lightblue", "price": 120, "rent": 8, "house": 50},
-    {"name": "ТЮРЬМА", "type": "jail"},
-    {"name": "Набережная", "type": "property", "group": "pink", "price": 140, "rent": 10, "house": 100},
-    {"name": "Электрост.", "type": "property", "group": "utility", "price": 150, "rent": 20},
-    {"name": "Парк", "type": "property", "group": "pink", "price": 140, "rent": 10, "house": 100},
-    {"name": "Сквер", "type": "property", "group": "pink", "price": 160, "rent": 12, "house": 100},
-    {"name": "Вокзал Юг", "type": "property", "group": "station", "price": 200, "rent": 25},
-    {"name": "Улица Мира", "type": "property", "group": "orange", "price": 180, "rent": 14, "house": 100},
-    {"name": "Риск", "type": "risk"},
-    {"name": "Переулок", "type": "property", "group": "orange", "price": 180, "rent": 14, "house": 100},
-    {"name": "Проспект", "type": "property", "group": "orange", "price": 200, "rent": 16, "house": 100},
-    {"name": "ПАРКОВКА", "type": "free_parking"},
-    {"name": "Театральная", "type": "property", "group": "red", "price": 220, "rent": 18, "house": 150},
-    {"name": "Шанс", "type": "chance"},
-    {"name": "Площадь Св.", "type": "property", "group": "red", "price": 220, "rent": 18, "house": 150},
-    {"name": "Кремль", "type": "property", "group": "red", "price": 240, "rent": 20, "house": 150},
-    {"name": "Вокзал Запад", "type": "property", "group": "station", "price": 200, "rent": 25},
-    {"name": "Ростовская", "type": "property", "group": "yellow", "price": 260, "rent": 22, "house": 150},    {"name": "Самарская", "type": "property", "group": "yellow", "price": 260, "rent": 22, "house": 150},
-    {"name": "Водоканал", "type": "property", "group": "utility", "price": 150, "rent": 20},
-    {"name": "Омская", "type": "property", "group": "yellow", "price": 280, "rent": 24, "house": 150},
-    {"name": "В ТЮРЬМУ", "type": "go_to_jail"},
-    {"name": "Лесная", "type": "property", "group": "green", "price": 300, "rent": 26, "house": 200},
-    {"name": "Речная", "type": "property", "group": "green", "price": 300, "rent": 26, "house": 200},
-    {"name": "Казна", "type": "chest"},
-    {"name": "Сосновая", "type": "property", "group": "green", "price": 320, "rent": 28, "house": 200},
-    {"name": "Вокзал Вост.", "type": "property", "group": "station", "price": 200, "rent": 25},
-    {"name": "Шанс", "type": "chance"},
-    {"name": "Элитная", "type": "property", "group": "darkblue", "price": 350, "rent": 35, "house": 200},
-    {"name": "Налог Люкс", "type": "tax", "amount": 100},
-    {"name": "Дворцовая", "type": "property", "group": "darkblue", "price": 400, "rent": 50, "house": 200},
+    {"name": "START", "type": "go"},
+    {"name": "Bread St.", "type": "property", "group": "brown", "price": 60, "rent": 4, "house": 50},
+    {"name": "Chest", "type": "chest"},
+    {"name": "Bakery", "type": "property", "group": "brown", "price": 60, "rent": 4, "house": 50},
+    {"name": "Tax", "type": "tax", "amount": 200},
+    {"name": "North Station", "type": "property", "group": "station", "price": 200, "rent": 25},
+    {"name": "Alley", "type": "property", "group": "lightblue", "price": 100, "rent": 6, "house": 50},
+    {"name": "Chance", "type": "chance"},
+    {"name": "Square", "type": "property", "group": "lightblue", "price": 100, "rent": 6, "house": 50},
+    {"name": "Boulevard", "type": "property", "group": "lightblue", "price": 120, "rent": 8, "house": 50},
+    {"name": "JAIL", "type": "jail"},
+    {"name": "Waterfront", "type": "property", "group": "pink", "price": 140, "rent": 10, "house": 100},
+    {"name": "Electric Co.", "type": "property", "group": "utility", "price": 150, "rent": 20},
+    {"name": "Park", "type": "property", "group": "pink", "price": 140, "rent": 10, "house": 100},
+    {"name": "Garden", "type": "property", "group": "pink", "price": 160, "rent": 12, "house": 100},
+    {"name": "South Station", "type": "property", "group": "station", "price": 200, "rent": 25},
+    {"name": "Peace St.", "type": "property", "group": "orange", "price": 180, "rent": 14, "house": 100},
+    {"name": "Risk", "type": "risk"},
+    {"name": "Lane", "type": "property", "group": "orange", "price": 180, "rent": 14, "house": 100},
+    {"name": "Avenue", "type": "property", "group": "orange", "price": 200, "rent": 16, "house": 100},
+    {"name": "PARKING", "type": "free_parking"},
+    {"name": "Theater St.", "type": "property", "group": "red", "price": 220, "rent": 18, "house": 150},
+    {"name": "Chance", "type": "chance"},
+    {"name": "Holy Sq.", "type": "property", "group": "red", "price": 220, "rent": 18, "house": 150},
+    {"name": "Kremlin", "type": "property", "group": "red", "price": 240, "rent": 20, "house": 150},
+    {"name": "West Station", "type": "property", "group": "station", "price": 200, "rent": 25},
+    {"name": "Rostov St.", "type": "property", "group": "yellow", "price": 260, "rent": 22, "house": 150},
+    {"name": "Samara St.", "type": "property", "group": "yellow", "price": 260, "rent": 22, "house": 150},
+    {"name": "Water Co.", "type": "property", "group": "utility", "price": 150, "rent": 20},
+    {"name": "Omsk St.", "type": "property", "group": "yellow", "price": 280, "rent": 24, "house": 150},
+    {"name": "GO TO JAIL", "type": "go_to_jail"},
+    {"name": "Forest St.", "type": "property", "group": "green", "price": 300, "rent": 26, "house": 200},
+    {"name": "River St.", "type": "property", "group": "green", "price": 300, "rent": 26, "house": 200},
+    {"name": "Chest", "type": "chest"},
+    {"name": "Pine St.", "type": "property", "group": "green", "price": 320, "rent": 28, "house": 200},
+    {"name": "East Station", "type": "property", "group": "station", "price": 200, "rent": 25},
+    {"name": "Chance", "type": "chance"},
+    {"name": "Elite St.", "type": "property", "group": "darkblue", "price": 350, "rent": 35, "house": 200},
+    {"name": "Luxury Tax", "type": "tax", "amount": 100},
+    {"name": "Palace St.", "type": "property", "group": "darkblue", "price": 400, "rent": 50, "house": 200},
 ]
 
 CHANCE_CARDS = [
-    {"text": "🎉 Вы выиграли в лотерею! +200 Ruzcoin", "effect": 200},
-    {"text": "🚗 Штраф за парковку. -50 Ruzcoin", "effect": -50},
-    {"text": "🏦 Банковские дивиденды +100 Ruzcoin", "effect": 100},
-    {"text": "🚓 Штраф ГИБДД. -100 Ruzcoin", "effect": -100},
-    {"text": "🎂 День рождения! Каждый игрок платит вам по 50 Ruzcoin", "effect": "birthday"},
-    {"text": "🏃 Переход на СТАРТ. +200 Ruzcoin", "effect": 200, "move_to": 0},
-    {"text": "📈 Акции выросли. +150 Ruzcoin", "effect": 150},
-    {"text": "🔧 Ремонт имущества. -100 Ruzcoin", "effect": -100},
+    {"text": "🎉 You won the lottery! +200 Ruzcoin", "effect": 200},
+    {"text": "🚗 Parking fine. -50 Ruzcoin", "effect": -50},
+    {"text": "🏦 Bank dividends +100 Ruzcoin", "effect": 100},
+    {"text": "🚓 Traffic fine. -100 Ruzcoin", "effect": -100},
+    {"text": "🎂 Birthday! Each player pays you 50 Ruzcoin", "effect": "birthday"},
+    {"text": "🏃 Go to START. +200 Ruzcoin", "effect": 200, "move_to": 0},
+    {"text": "📈 Stocks went up. +150 Ruzcoin", "effect": 150},
+    {"text": "🔧 Property repairs. -100 Ruzcoin", "effect": -100},
 ]
 
 RISK_CARDS = [
-    {"text": "💸 Налог на роскошь. -150 Ruzcoin", "effect": -150},
-    {"text": "🎁 Подарок от дяди. +100 Ruzcoin", "effect": 100},
-    {"text": "🏥 Оплата больницы. -100 Ruzcoin", "effect": -100},
-    {"text": "💼 Премия на работе. +200 Ruzcoin", "effect": 200},
-    {"text": "📚 Оплата обучения. -50 Ruzcoin", "effect": -50},
-    {"text": "🎰 Выигрыш в казино. +250 Ruzcoin", "effect": 250},
+    {"text": "💸 Luxury tax. -150 Ruzcoin", "effect": -150},
+    {"text": "🎁 Gift from uncle. +100 Ruzcoin", "effect": 100},
+    {"text": "🏥 Hospital payment. -100 Ruzcoin", "effect": -100},
+    {"text": "💼 Work bonus. +200 Ruzcoin", "effect": 200},
+    {"text": "📚 Education payment. -50 Ruzcoin", "effect": -50},
+    {"text": "🎰 Casino win. +250 Ruzcoin", "effect": 250},
 ]
 
 PLAYER_COLORS = [
@@ -194,7 +192,7 @@ class Player:
     position: int = 0
     color: str = "#FFFFFF"
     is_bot: bool = False
-    in_jail: bool = False    
+    in_jail: bool = False
     jail_turns: int = 0
     is_active: bool = True
 
@@ -223,6 +221,7 @@ class Room:
     chance_deck: list = field(default_factory=lambda: CHANCE_CARDS.copy())
     risk_deck: list = field(default_factory=lambda: RISK_CARDS.copy())
     awaiting_buy: Optional[int] = None
+    turn_timer_task: Optional[asyncio.Task] = None
 
     def active_players(self) -> List[Player]:
         return [p for p in self.players.values() if p.is_active]
@@ -244,7 +243,7 @@ class Room:
 class Database:
     @staticmethod
     def save_user(user_id: int, username: str):
-        conn = sqlite3.connect(str(DB_PATH))        
+        conn = sqlite3.connect(str(DB_PATH))
         conn.execute(
             "INSERT OR REPLACE INTO users (id, username) VALUES (?, ?)",
             (user_id, username)
@@ -293,8 +292,7 @@ class Database:
             awaiting_buy=row[10]
         )
 
-        # Загрузка игроков
-        cursor.execute("SELECT * FROM players WHERE room_code = ?", (code,))        
+        cursor.execute("SELECT * FROM players WHERE room_code = ?", (code,))
         for p_row in cursor.fetchall():
             room.players[p_row[1]] = Player(
                 user_id=p_row[1], name=p_row[2], money=p_row[3],
@@ -302,7 +300,6 @@ class Database:
                 in_jail=bool(p_row[7]), jail_turns=p_row[8], is_active=bool(p_row[9])
             )
 
-        # Загрузка владения
         cursor.execute("SELECT cell_idx, owner_id FROM ownership WHERE room_code = ?", (code,))
         for o_row in cursor.fetchall():
             room.ownership[o_row[0]] = o_row[1]
@@ -344,6 +341,7 @@ class Database:
             return False
         finally:
             conn.close()
+
     @staticmethod
     def update_player(room_code: str, player: Player):
         conn = sqlite3.connect(str(DB_PATH))
@@ -385,6 +383,24 @@ class Database:
         row = cursor.fetchone()
         conn.close()
         return row[0] if row else None
+    
+    @staticmethod
+    def get_all_rooms() -> List[Dict]:
+        conn = sqlite3.connect(str(DB_PATH))
+        cursor = conn.cursor()
+        cursor.execute("SELECT code, password, max_players FROM rooms WHERE is_started = 0")
+        rooms = []
+        for row in cursor.fetchall():
+            cursor.execute("SELECT COUNT(*) FROM players WHERE room_code = ?", (row[0],))
+            player_count = cursor.fetchone()[0]
+            rooms.append({
+                'code': row[0],
+                'has_password': bool(row[1]),
+                'max_players': row[2],
+                'current_players': player_count
+            })
+        conn.close()
+        return rooms
 
 
 db = Database()
@@ -421,6 +437,7 @@ def render_board(room: Room) -> bytes:
         c = BOARD[idx]
         x1, y1, x2, y2 = _cell_rect(idx, cell)
 
+        # Базовый цвет клетки
         bg = "#FFF8DC"
         if c["type"] == "go": bg = "#FFE4B5"
         elif c["type"] == "jail": bg = "#FFDAB9"
@@ -431,8 +448,15 @@ def render_board(room: Room) -> bytes:
         elif c["type"] == "chest": bg = "#E0FFFF"
         elif c["type"] == "tax": bg = "#F0E68C"
 
+        # Если есть владелец, закрашиваем клетку его цветом
+        if idx in room.ownership:
+            owner = room.players.get(room.ownership[idx])
+            if owner:
+                bg = owner.color
+
         draw.rectangle([x1, y1, x2, y2], fill=bg, outline="#333", width=2)
 
+        # Рисуем полоску группы ПОВЕРХ цвета игрока
         if c["type"] == "property" and c.get("group") in GROUP_COLORS_HEX:
             group_col = GROUP_COLORS_HEX[c["group"]]
             if idx <= 10:
@@ -443,19 +467,12 @@ def render_board(room: Room) -> bytes:
                 draw.rectangle([x1 + 2, y1 + 2, x2 - 2, y1 + 14], fill=group_col)
             else:
                 draw.rectangle([x1 + 2, y1 + 2, x1 + 14, y2 - 2], fill=group_col)
-        if idx in room.ownership:
-            owner = room.players.get(room.ownership[idx])
-            if owner:
-                overlay = Image.new('RGBA', (int(cell), int(cell)), owner.color + "80")
-                img.paste(Image.alpha_composite(
-                    Image.new('RGBA', (int(cell), int(cell)), (0, 0, 0, 0)), overlay
-                ).convert('RGB'), (int(x1), int(y1)))
-                draw.rectangle([x1, y1, x2, y2], outline=owner.color, width=3)
 
         draw.text((x1 + 4, y1 + 4), c["name"], fill="#000", font=font_big)
         if c["type"] == "property":
             draw.text((x1 + 4, y1 + 18), f"${c['price']}", fill="#555", font=font_small)
 
+    # Рисуем фишки игроков
     active = room.active_players()
     for i, p in enumerate(active):
         x1, y1, x2, y2 = _cell_rect(p.position, cell)
@@ -465,15 +482,16 @@ def render_board(room: Room) -> bytes:
         draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=p.color, outline="#000", width=2)
         draw.text((cx - 3, cy - 5), str(i + 1), fill="#FFF", font=font_small)
 
+    # Центральная информация
     cx, cy = size // 2, size // 2
     draw.rectangle([cx - 150, cy - 80, cx + 150, cy + 80], fill="#FFF8DC", outline="#333", width=2)
     draw.text((cx - 140, cy - 70), "RUZOPOLY", fill="#2C3E50", font=font_title)
 
     cur = room.current_player()
     if cur and room.is_started:
-        draw.text((cx - 140, cy - 30), f"Ход: {cur.name}", fill="#000", font=font_big)
+        draw.text((cx - 140, cy - 30), f"Turn: {cur.name}", fill="#000", font=font_big)
         draw.text((cx - 140, cy - 10), f"Ruzcoin: {cur.money}", fill="#DAA520", font=font_big)
-        draw.text((cx - 140, cy + 15), f"Позиция: {BOARD[cur.position]['name']}", fill="#000", font=font_small)
+        draw.text((cx - 140, cy + 15), f"Position: {BOARD[cur.position]['name']}", fill="#000", font=font_small)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -516,20 +534,34 @@ router = Router()
 dp.include_router(router)
 
 
+# ================== ТАЙМЕР ХОДА ==================
+async def turn_timeout(room_code: str):
+    """Автоматический переход хода через 30 секунд"""
+    await asyncio.sleep(30)
+    room = db.get_room(room_code)
+    if not room or not room.is_started:
+        return
+    
+    cur = room.current_player()
+    if cur:
+        await send_message(room, f"⏰ Time's up! {cur.name}'s turn skipped.")
+        await end_turn(room)
+
+
 # ================== ОТПРАВКА ПОЛЯ ==================
 async def send_board(room: Room, extra_text: str = ""):
     img_bytes = render_board(room)
     photo = BufferedInputFile(img_bytes, filename="board.png")
 
     cur = room.current_player()
-    text = f"🎲 **RUZOPOLY** | Комната: `{room.code}`\n"
+    text = f"🎲 **RUZOPOLY** | Room: `{room.code}`\n"
     if cur:
-        text += f"👤 Ход: **{cur.name}** ({cur.money} Ruzcoin)\n"
-        text += f"📍 Позиция: {BOARD[cur.position]['name']}\n"
+        text += f"👤 Turn: **{cur.name}** ({cur.money} Ruzcoin)\n"
+        text += f"📍 Position: {BOARD[cur.position]['name']}\n"
     if extra_text:
         text += f"\n{extra_text}"
 
-    text += "\n\n💰 **Игроки:**\n"
+    text += "\n\n💰 **Players:**\n"
     for p in room.players.values():
         marker = "👑" if p.user_id == (cur.user_id if cur else None) else "  "
         bot_mark = "🤖" if p.is_bot else "👤"
@@ -539,15 +571,15 @@ async def send_board(room: Room, extra_text: str = ""):
     kb_buttons = []
     if cur and room.is_started:
         if not cur.is_bot:
-            kb_buttons.append([InlineKeyboardButton(text="🎲 Бросить кубики", callback_data=f"roll_{room.code}")])
+            kb_buttons.append([InlineKeyboardButton(text="🎲 Roll Dice", callback_data=f"roll_{room.code}")])
             if room.awaiting_buy is not None:
-                cell = BOARD[room.awaiting_buy]                
+                cell = BOARD[room.awaiting_buy]
                 kb_buttons.append([InlineKeyboardButton(
-                    text=f"💵 Купить {cell['name']} ({cell['price']}₽)",
+                    text=f"💵 Buy {cell['name']} ({cell['price']}₽)",
                     callback_data=f"buy_{room.code}")])
-                kb_buttons.append([InlineKeyboardButton(text="❌ Пропустить", callback_data=f"skipbuy_{room.code}")])
+                kb_buttons.append([InlineKeyboardButton(text="❌ Skip", callback_data=f"skipbuy_{room.code}")])
             if cur.in_jail:
-                kb_buttons.append([InlineKeyboardButton(text="💰 Заплатить 50 и выйти", callback_data=f"payjail_{room.code}")])
+                kb_buttons.append([InlineKeyboardButton(text="💰 Pay 50 to exit", callback_data=f"payjail_{room.code}")])
 
     kb = InlineKeyboardMarkup(inline_keyboard=kb_buttons) if kb_buttons else None
 
@@ -580,13 +612,94 @@ async def send_message(room: Room, text: str, reply_markup=None):
 async def cmd_start(message: Message):
     db.save_user(message.from_user.id, message.from_user.username or message.from_user.full_name)
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🏠 Создать комнату", callback_data="create_room")],
-        [InlineKeyboardButton(text="🚪 Присоединиться по коду", callback_data="join_room")],
+        [InlineKeyboardButton(text="🏠 Create Room", callback_data="create_room")],
+        [InlineKeyboardButton(text="🚪 Join by Code", callback_data="join_room")],
+        [InlineKeyboardButton(text="📋 Browse Rooms", callback_data="browse_rooms")],
     ])
     await message.answer(
-        "🎩 Добро пожаловать в **RUZOPOLY**!\n\n"
-        "Классическая Монополия с валютой **Ruzcoin** 💰\n\n"
-        "Выберите действие:",
+        "🎩 Welcome to **RUZOPOLY**!\n\n"
+        "Classic Monopoly with **Ruzcoin** currency 💰\n\n"
+        "Choose an action:",
+        reply_markup=kb, parse_mode="Markdown"
+    )
+
+
+@router.callback_query(F.data == "browse_rooms")
+async def cb_browse_rooms(callback: CallbackQuery):
+    rooms = db.get_all_rooms()
+    if not rooms:
+        await callback.message.edit_text("📋 No available rooms. Create one!", 
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🏠 Create Room", callback_data="create_room")],
+                [InlineKeyboardButton(text="« Back", callback_data="back_to_menu")]
+            ]))
+        return
+    
+    text = "📋 **Available Rooms:**\n\n"
+    kb_buttons = []
+    
+    for room in rooms:
+        lock = "🔒" if room['has_password'] else "🔓"
+        text += f"{lock} `{room['code']}` - {room['current_players']}/{room['max_players']} players\n"
+        if not room['has_password']:
+            kb_buttons.append([InlineKeyboardButton(
+                text=f"Join {room['code']}", 
+                callback_data=f"quickjoin_{room['code']}")])
+    
+    kb_buttons.append([InlineKeyboardButton(text="🔄 Refresh", callback_data="browse_rooms")])
+    kb_buttons.append([InlineKeyboardButton(text="« Back", callback_data="back_to_menu")])
+    
+    await callback.message.edit_text(text, 
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons),
+        parse_mode="Markdown")
+
+
+@router.callback_query(F.data.startswith("quickjoin_"))
+async def cb_quick_join(callback: CallbackQuery, state: FSMContext):
+    code = callback.data.split("_")[1]
+    room = db.get_room(code)
+    if not room:
+        await callback.answer("❌ Room not found", show_alert=True)
+        return
+    
+    if room.password:
+        await callback.answer("❌ This room requires password", show_alert=True)
+        return
+    
+    if len(room.players) >= room.max_players:
+        await callback.answer("❌ Room is full", show_alert=True)
+        return
+    
+    if callback.from_user.id in room.players:
+        await callback.answer("You're already in this room!", show_alert=True)
+        return
+    
+    color = get_available_color(room)
+    player = Player(user_id=callback.from_user.id, name=callback.from_user.full_name, color=color)
+    
+    if not db.add_player(room.code, player):
+        await callback.answer("❌ Failed to join", show_alert=True)
+        return
+    
+    room.players[player.user_id] = player
+    db.set_user_room(callback.from_user.id, room.code)
+    
+    await callback.answer(f"✅ Joined room {room.code}!")
+    await send_message(room, f"🎉 **{callback.from_user.full_name}** joined the game!")
+    await show_lobby(callback, room)
+
+
+@router.callback_query(F.data == "back_to_menu")
+async def cb_back_menu(callback: CallbackQuery):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏠 Create Room", callback_data="create_room")],
+        [InlineKeyboardButton(text="🚪 Join by Code", callback_data="join_room")],
+        [InlineKeyboardButton(text="📋 Browse Rooms", callback_data="browse_rooms")],
+    ])
+    await callback.message.edit_text(
+        "🎩 Welcome to **RUZOPOLY**!\n\n"
+        "Classic Monopoly with **Ruzcoin** currency 💰\n\n"
+        "Choose an action:",
         reply_markup=kb, parse_mode="Markdown"
     )
 
@@ -594,13 +707,13 @@ async def cmd_start(message: Message):
 @router.callback_query(F.data == "create_room")
 async def cb_create_room(callback: CallbackQuery, state: FSMContext):
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="2 игрока", callback_data="max_2"),
-         InlineKeyboardButton(text="3 игрока", callback_data="max_3")],
-        [InlineKeyboardButton(text="4 игрока", callback_data="max_4"),
-         InlineKeyboardButton(text="6 игроков", callback_data="max_6")],
-        [InlineKeyboardButton(text="8 игроков", callback_data="max_8")],
+        [InlineKeyboardButton(text="2 players", callback_data="max_2"),
+         InlineKeyboardButton(text="3 players", callback_data="max_3")],
+        [InlineKeyboardButton(text="4 players", callback_data="max_4"),
+         InlineKeyboardButton(text="6 players", callback_data="max_6")],
+        [InlineKeyboardButton(text="8 players", callback_data="max_8")],
     ])
-    await callback.message.edit_text("👥 Выберите максимальное количество игроков:", reply_markup=kb)
+    await callback.message.edit_text("👥 Choose max players:", reply_markup=kb)
     await state.set_state(CreateRoom.wait_max)
 
 
@@ -609,10 +722,10 @@ async def cb_max_players(callback: CallbackQuery, state: FSMContext):
     max_p = int(callback.data.split("_")[1])
     await state.update_data(max_players=max_p)
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔒 С паролем", callback_data="pass_yes")],
-        [InlineKeyboardButton(text="🔓 Без пароля", callback_data="pass_no")],
+        [InlineKeyboardButton(text="🔒 With Password", callback_data="pass_yes")],
+        [InlineKeyboardButton(text="🔓 No Password", callback_data="pass_no")],
     ])
-    await callback.message.edit_text(f"Макс. игроков: {max_p}. Нужен пароль?", reply_markup=kb)
+    await callback.message.edit_text(f"Max players: {max_p}. Password?", reply_markup=kb)
     await state.set_state(CreateRoom.wait_password)
 
 
@@ -624,7 +737,7 @@ async def cb_no_password(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "pass_yes", StateFilter(CreateRoom.wait_password))
 async def cb_ask_password(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("🔐 Введите пароль для комнаты (одним сообщением):")
+    await callback.message.edit_text("🔐 Enter password for the room:")
 
 
 @router.message(StateFilter(CreateRoom.wait_password))
@@ -646,7 +759,7 @@ async def finalize_room(callback: CallbackQuery, password: Optional[str], max_pl
     room.players[player.user_id] = player
     
     if not db.create_room(room):
-        await callback.answer("Ошибка создания комнаты", show_alert=True)
+        await callback.answer("Error creating room", show_alert=True)
         return
     
     db.add_player(code, player)
@@ -669,7 +782,7 @@ async def finalize_room_from_message(message: Message, password: Optional[str], 
     room.players[player.user_id] = player
     
     if not db.create_room(room):
-        await message.answer("Ошибка создания комнаты")
+        await message.answer("Error creating room")
         return
     
     db.add_player(code, player)
@@ -684,17 +797,18 @@ async def show_lobby(message_or_cb, room: Room):
         f"{'🤖' if p.is_bot else '👤'} {p.name}" for p in room.players.values()
     ])
     text = (
-        f"🏠 **Комната Ruzopoly**\n"
-        f"🔑 Код: `{room.code}`\n"
-        f"🔒 Пароль: `{room.password or 'нет'}`\n"
-        f"👥 Игроки: {len(room.players)}/{room.max_players}\n\n"
+        f"🏠 **Ruzopoly Room**\n"
+        f"🔑 Code: `{room.code}`\n"
+        f"🔒 Password: `{room.password or 'none'}`\n"
+        f"👥 Players: {len(room.players)}/{room.max_players}\n\n"
         f"{players_text}\n\n"
-        f"Ожидаем игроков..."
-    )    
+        f"Waiting for players..."
+    )
+    
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🤖 Добавить бота", callback_data=f"addbot_{room.code}")],
-        [InlineKeyboardButton(text="🚀 Начать игру", callback_data=f"start_{room.code}")],
-        [InlineKeyboardButton(text="🔄 Обновить", callback_data=f"lobby_{room.code}")],
+        [InlineKeyboardButton(text="🤖 Add Bot", callback_data=f"addbot_{room.code}")],
+        [InlineKeyboardButton(text="🚀 Start Game", callback_data=f"start_{room.code}")],
+        [InlineKeyboardButton(text="🔄 Refresh", callback_data=f"lobby_{room.code}")],
     ])
     if isinstance(message_or_cb, CallbackQuery):
         await message_or_cb.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
@@ -702,14 +816,13 @@ async def show_lobby(message_or_cb, room: Room):
         await message_or_cb.answer(text, reply_markup=kb, parse_mode="Markdown")
 
 
-# Продолжение следует в следующем сообщении из-за ограничения длины...
-    # ================== ЛОББИ ==================
+# ================== ЛОББИ ==================
 @router.callback_query(F.data.startswith("lobby_"))
 async def cb_lobby(callback: CallbackQuery):
     code = callback.data.split("_")[1]
     room = db.get_room(code)
     if not room:
-        await callback.answer("Комната не найдена", show_alert=True)
+        await callback.answer("Room not found", show_alert=True)
         return
     await show_lobby(callback, room)
 
@@ -719,10 +832,14 @@ async def cb_add_bot(callback: CallbackQuery):
     code = callback.data.split("_")[1]
     room = db.get_room(code)
     if not room:
-        await callback.answer("Комната не найдена", show_alert=True)
+        await callback.answer("Room not found", show_alert=True)
         return
     
-    bot_names = ["Альфа-Бот", "Бета-Бот", "Гамма-Бот", "Дельта-Бот", "Эпсилон-Бот"]
+    if len(room.players) >= room.max_players:
+        await callback.answer("Room is full", show_alert=True)
+        return
+    
+    bot_names = ["Alpha-Bot", "Beta-Bot", "Gamma-Bot", "Delta-Bot", "Epsilon-Bot"]
     name = random.choice(bot_names)
     color = get_available_color(room)
     bot_user_id = -random.randint(1000, 9999)
@@ -730,11 +847,11 @@ async def cb_add_bot(callback: CallbackQuery):
     player = Player(user_id=bot_user_id, name=f"🤖 {name}", color=color, is_bot=True)
     
     if not db.add_player(code, player):
-        await callback.answer("Комната заполнена", show_alert=True)
+        await callback.answer("Room is full", show_alert=True)
         return
     
     room.players[bot_user_id] = player
-    await callback.answer(f"Бот {name} добавлен!")
+    await callback.answer(f"Bot {name} added!")
     await show_lobby(callback, room)
 
 
@@ -743,30 +860,35 @@ async def cb_start_game(callback: CallbackQuery):
     code = callback.data.split("_")[1]
     room = db.get_room(code)
     if not room:
-        await callback.answer("Комната не найдена", show_alert=True)
+        await callback.answer("Room not found", show_alert=True)
         return
     
     if len(room.players) < 2:
-        await callback.answer("Нужно минимум 2 игрока", show_alert=True)
+        await callback.answer("Need at least 2 players", show_alert=True)
         return
     
     room.is_started = True
     db.update_room(room)
-    await callback.message.edit_text("🎲 Игра начинается! Бросаем кубики...")
-    await send_board(room, "🎲 **Игра началась!** Первый ход:")
+    await callback.message.edit_text("🎲 Game starting! Rolling dice...")
+    
+    cur = room.current_player()
+    if cur:
+        await send_message(room, f"🎮 **{cur.name}'s TURN**")
+    
+    await send_board(room, "🎲 **Game started!** First turn:")
     await maybe_bot_turn(room)
 
 
 # ================== ПРИСОЕДИНЕНИЕ ==================
 @router.callback_query(F.data == "join_room")
 async def cb_join_menu(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("🔑 Введите код комнаты:")
+    await callback.message.edit_text("🔑 Enter room code:")
     await state.set_state(JoinRoom.wait_code)
 
 
 @router.message(Command("join"))
 async def cmd_join(message: Message, state: FSMContext):
-    await message.answer("🔑 Введите код комнаты:")
+    await message.answer("🔑 Enter room code:")
     await state.set_state(JoinRoom.wait_code)
 
 
@@ -775,13 +897,14 @@ async def msg_join_code(message: Message, state: FSMContext):
     code = message.text.strip().upper()
     room = db.get_room(code)
     if not room:
-        await message.answer("❌ Комната не найдена. Проверьте код.")
+        await message.answer("❌ Room not found. Check the code.")
         await state.clear()
         return
     
     if room.password:
         await state.update_data(join_code=code)
-        await message.answer("🔒 Эта комната защищена паролем. Введите пароль:")
+        await message.answer("🔒 This room is password protected. Enter password:")
+        await state.set_state(JoinRoom.wait_password)
         return
     
     await do_join(message, room, state)
@@ -797,12 +920,12 @@ async def msg_join_password(message: Message, state: FSMContext):
     
     room = db.get_room(code)
     if not room:
-        await message.answer("❌ Комната не найдена.")
+        await message.answer("❌ Room not found.")
         await state.clear()
         return
     
-    if message.text.strip() != room.password:        
-        await message.answer("❌ Неверный пароль.")
+    if message.text.strip() != room.password:
+        await message.answer("❌ Wrong password.")
         return
     
     await do_join(message, room, state)
@@ -810,7 +933,12 @@ async def msg_join_password(message: Message, state: FSMContext):
 
 async def do_join(message: Message, room: Room, state: FSMContext):
     if message.from_user.id in room.players:
-        await message.answer("Вы уже в этой комнате!")
+        await message.answer("You're already in this room!")
+        await state.clear()
+        return
+    
+    if len(room.players) >= room.max_players:
+        await message.answer("❌ Room is full.")
         await state.clear()
         return
     
@@ -818,7 +946,7 @@ async def do_join(message: Message, room: Room, state: FSMContext):
     player = Player(user_id=message.from_user.id, name=message.from_user.full_name, color=color)
     
     if not db.add_player(room.code, player):
-        await message.answer("❌ Комната заполнена.")
+        await message.answer("❌ Room is full.")
         await state.clear()
         return
     
@@ -826,8 +954,8 @@ async def do_join(message: Message, room: Room, state: FSMContext):
     db.set_user_room(message.from_user.id, room.code)
     
     await state.clear()
-    await message.answer(f"✅ Вы присоединились к комнате `{room.code}`!", parse_mode="Markdown")
-    await send_message(room, f"🎉 **{message.from_user.full_name}** присоединился к игре!")
+    await message.answer(f"✅ You joined room `{room.code}`!", parse_mode="Markdown")
+    await send_message(room, f"🎉 **{message.from_user.full_name}** joined the game!")
     await show_lobby(message, room)
 
 
@@ -837,12 +965,12 @@ async def cb_roll(callback: CallbackQuery):
     code = callback.data.split("_")[1]
     room = db.get_room(code)
     if not room or not room.is_started:
-        await callback.answer("Игра не идёт", show_alert=True)
+        await callback.answer("Game not running", show_alert=True)
         return
     
     cur = room.current_player()
     if not cur or cur.user_id != callback.from_user.id:
-        await callback.answer("Сейчас не ваш ход", show_alert=True)
+        await callback.answer("Not your turn", show_alert=True)
         return
     
     await callback.answer()
@@ -853,17 +981,17 @@ async def cb_roll(callback: CallbackQuery):
 async def cmd_roll(message: Message):
     room_code = db.get_user_room(message.from_user.id)
     if not room_code:
-        await message.answer("Вы не в игре.")
+        await message.answer("You're not in a game.")
         return
     
     room = db.get_room(room_code)
     if not room or not room.is_started:
-        await message.answer("Игра не начата.")
+        await message.answer("Game not started.")
         return
     
     cur = room.current_player()
     if not cur or cur.user_id != message.from_user.id:
-        await message.answer("Сейчас не ваш ход.")
+        await message.answer("Not your turn.")
         return
     
     await do_roll(room)
@@ -874,13 +1002,17 @@ async def do_roll(room: Room):
     if not cur:
         return
 
+    # Отменяем предыдущий таймер если есть
+    if room.turn_timer_task and not room.turn_timer_task.done():
+        room.turn_timer_task.cancel()
+
     if cur.in_jail:
         d1, d2 = random.randint(1, 6), random.randint(1, 6)
         if d1 == d2:
             cur.in_jail = False
             cur.jail_turns = 0
             db.update_player(room.code, cur)
-            await send_message(room, f"🎲 {cur.name} выбросил {d1}+{d2} (дубль!) и вышел из тюрьмы!")
+            await send_message(room, f"🎲 {cur.name} rolled {d1}+{d2} (doubles!) and got out of jail!")
             await move_player(room, cur, d1 + d2)
         else:
             cur.jail_turns += 1
@@ -890,19 +1022,19 @@ async def do_roll(room: Room):
                 cur.in_jail = False
                 cur.jail_turns = 0
                 db.update_player(room.code, cur)
-                await send_message(room, f"🎲 {cur.name} не выбросил дубль 3 хода. Платит 50 Ruzcoin и выходит.")
+                await send_message(room, f"🎲 {cur.name} didn't roll doubles for 3 turns. Pays 50 Ruzcoin and exits.")
                 await move_player(room, cur, d1 + d2)
             else:
-                await send_message(room, f"🎲 {cur.name} в тюрьме. Выпало {d1}+{d2}. Осталось попыток: {3 - cur.jail_turns}")
+                await send_message(room, f"🎲 {cur.name} in jail. Rolled {d1}+{d2}. Attempts left: {3 - cur.jail_turns}")
                 room.next_turn()
                 db.update_room(room)
-                await send_board(room, f"🔒 {cur.name} остаётся в тюрьме.")
+                await send_board(room, f"🔒 {cur.name} remains in jail.")
                 await maybe_bot_turn(room)
         return
 
     d1, d2 = random.randint(1, 6), random.randint(1, 6)
-    total = d1 + d2    
-    await send_message(room, f"🎲 **{cur.name}** бросил кубики: **{d1} + {d2} = {total}**")
+    total = d1 + d2
+    await send_message(room, f"🎲 **{cur.name}** rolled: **{d1} + {d2} = {total}**")
     await move_player(room, cur, total)
 
 
@@ -913,7 +1045,7 @@ async def move_player(room: Room, player: Player, steps: int):
     if new_pos < old_pos and new_pos != 0:
         player.receive(200)
         db.update_player(room.code, player)
-        await send_message(room, f"💰 {player.name} прошёл через СТАРТ и получил 200 Ruzcoin!")
+        await send_message(room, f"💰 {player.name} passed START and received 200 Ruzcoin!")
 
     player.position = new_pos
     db.update_player(room.code, player)
@@ -925,39 +1057,39 @@ async def process_cell(room: Room, player: Player):
     ctype = cell["type"]
 
     if ctype == "go":
-        await send_board(room, f"🏁 {player.name} на СТАРТЕ.")
+        await send_board(room, f"🏁 {player.name} at START.")
         await end_turn(room)
     elif ctype == "property":
         await handle_property(room, player, cell)
     elif ctype == "chance":
         card = random.choice(room.chance_deck)
-        await apply_card(room, player, card, "🎲 ШАНС")
+        await apply_card(room, player, card, "🎲 CHANCE")
     elif ctype == "risk":
         card = random.choice(room.risk_deck)
-        await apply_card(room, player, card, "⚠️ РИСК")
+        await apply_card(room, player, card, "⚠️ RISK")
     elif ctype == "chest":
         amount = random.choice([50, 100, 150, 200])
         player.receive(amount)
         db.update_player(room.code, player)
-        await send_board(room, f"💎 {player.name} получил {amount} Ruzcoin из Казны!")
+        await send_board(room, f"💎 {player.name} received {amount} Ruzcoin from Chest!")
         await end_turn(room)
     elif ctype == "tax":
         player.pay(cell["amount"])
         db.update_player(room.code, player)
-        await send_board(room, f"💸 {player.name} платит налог {cell['amount']} Ruzcoin.")
+        await send_board(room, f"💸 {player.name} pays tax {cell['amount']} Ruzcoin.")
         await end_turn(room)
     elif ctype == "jail":
-        await send_board(room, f"👀 {player.name} просто навещает тюрьму.")
+        await send_board(room, f"👀 {player.name} just visiting jail.")
         await end_turn(room)
     elif ctype == "free_parking":
-        await send_board(room, f"🅿️ {player.name} отдыхает на парковке.")
-        await end_turn(room)    
+        await send_board(room, f"🅿️ {player.name} resting at parking.")
+        await end_turn(room)
     elif ctype == "go_to_jail":
         player.position = 10
         player.in_jail = True
         player.jail_turns = 0
         db.update_player(room.code, player)
-        await send_board(room, f"🚔 {player.name} отправляется в ТЮРЬМУ!")
+        await send_board(room, f"🚔 {player.name} goes to JAIL!")
         await end_turn(room)
 
 
@@ -966,7 +1098,7 @@ async def handle_property(room: Room, player: Player, cell):
     if idx in room.ownership:
         owner_id = room.ownership[idx]
         if owner_id == player.user_id:
-            await send_board(room, f"🏠 {player.name} на своей территории: {cell['name']}")
+            await send_board(room, f"🏠 {player.name} on their property: {cell['name']}")
             await end_turn(room)
         else:
             owner = room.players[owner_id]
@@ -976,23 +1108,22 @@ async def handle_property(room: Room, player: Player, cell):
             db.update_player(room.code, player)
             db.update_player(room.code, owner)
             await send_board(room,
-                f"💰 {player.name} платит {rent} Ruzcoin игроку **{owner.name}** за {cell['name']}.\n\n"
-                f"💡 Хотите выкупить территорию? (Введите /buyout)")
-            if player.is_active and player.money >= cell["price"] * 2:
-                room.awaiting_buy = idx
-                db.update_room(room)
-                await send_board(room,
-                    f"💼 {player.name} может принудительно выкупить {cell['name']} за {cell['price'] * 2} Ruzcoin!")
+                f"💰 {player.name} pays {rent} Ruzcoin to **{owner.name}** for {cell['name']}.")
             await end_turn(room)
     else:
         if player.money >= cell["price"]:
             room.awaiting_buy = idx
             db.update_room(room)
             await send_board(room,
-                f"🏡 Свободная территория: **{cell['name']}**\n"
-                f"💵 Цена: {cell['price']} Ruzcoin\n"
-                f"🏷️ Рента: {cell['rent']} Ruzcoin\n\n"
-                f"Нажмите кнопку, чтобы купить!")
+                f"🏡 Free property: **{cell['name']}**\n"
+                f"💵 Price: {cell['price']} Ruzcoin\n"
+                f"🏷️ Rent: {cell['rent']} Ruzcoin\n\n"
+                f"Press button to buy!")
+            
+            # Запускаем таймер на 30 секунд
+            if not player.is_bot:
+                room.turn_timer_task = asyncio.create_task(turn_timeout(room.code))
+            
             if player.is_bot:
                 await asyncio.sleep(1.5)
                 player.pay(cell["price"])
@@ -1001,10 +1132,10 @@ async def handle_property(room: Room, player: Player, cell):
                 room.awaiting_buy = None
                 db.update_room(room)
                 db.update_player(room.code, player)
-                await send_board(room, f"✅ {player.name} купил {cell['name']} за {cell['price']} Ruzcoin!")                
+                await send_board(room, f"✅ {player.name} bought {cell['name']} for {cell['price']} Ruzcoin!")
                 await end_turn(room)
         else:
-            await send_board(room, f"💸 У {player.name} недостаточно денег для покупки {cell['name']}.")
+            await send_board(room, f"💸 {player.name} doesn't have enough money to buy {cell['name']}.")
             await end_turn(room)
 
 
@@ -1030,9 +1161,20 @@ async def apply_card(room: Room, player: Player, card, title: str):
 
 
 async def end_turn(room: Room):
+    # Отменяем таймер
+    if room.turn_timer_task and not room.turn_timer_task.done():
+        room.turn_timer_task.cancel()
+    
     room.awaiting_buy = None
     room.next_turn()
     db.update_room(room)
+    
+    # Сообщаем о новом ходе
+    cur = room.current_player()
+    if cur:
+        await send_message(room, f"🎮 **{cur.name}'s TURN**")
+    
+    await send_board(room)
     asyncio.create_task(maybe_bot_turn(room))
 
 
@@ -1051,27 +1193,28 @@ async def maybe_bot_turn(room: Room):
             return
         break
 
+
 @router.callback_query(F.data.startswith("buy_"))
 async def cb_buy(callback: CallbackQuery):
     code = callback.data.split("_")[1]
     room = db.get_room(code)
     if not room:
-        await callback.answer("Комната не найдена", show_alert=True)
+        await callback.answer("Room not found", show_alert=True)
         return
     
     cur = room.current_player()
     if not cur or cur.user_id != callback.from_user.id:
-        await callback.answer("Не ваш ход", show_alert=True)
+        await callback.answer("Not your turn", show_alert=True)
         return
     
     if room.awaiting_buy is None:
-        await callback.answer("Нечего покупать", show_alert=True)
+        await callback.answer("Nothing to buy", show_alert=True)
         return
     
     idx = room.awaiting_buy
     cell = BOARD[idx]
     if cur.money < cell["price"]:
-        await callback.answer("Недостаточно Ruzcoin", show_alert=True)
+        await callback.answer("Not enough Ruzcoin", show_alert=True)
         return
     
     cur.pay(cell["price"])
@@ -1081,8 +1224,8 @@ async def cb_buy(callback: CallbackQuery):
     db.update_room(room)
     db.update_player(room.code, cur)
     
-    await callback.answer(f"Куплено: {cell['name']}!")
-    await send_board(room, f"✅ **{cur.name}** купил **{cell['name']}** за {cell['price']} Ruzcoin!")
+    await callback.answer(f"Bought: {cell['name']}!")
+    await send_board(room, f"✅ **{cur.name}** bought **{cell['name']}** for {cell['price']} Ruzcoin!")
     await end_turn(room)
 
 
@@ -1096,7 +1239,7 @@ async def cb_skip_buy(callback: CallbackQuery):
     room.awaiting_buy = None
     db.update_room(room)
     await callback.answer()
-    await send_board(room, f"❌ {callback.from_user.full_name} отказался от покупки.")
+    await send_board(room, f"❌ {callback.from_user.full_name} declined the purchase.")
     await end_turn(room)
 
 
@@ -1109,11 +1252,11 @@ async def cb_pay_jail(callback: CallbackQuery):
     
     cur = room.current_player()
     if not cur or cur.user_id != callback.from_user.id:
-        await callback.answer("Не ваш ход", show_alert=True)
+        await callback.answer("Not your turn", show_alert=True)
         return
     
     if cur.money < 50:
-        await callback.answer("Недостаточно Ruzcoin", show_alert=True)
+        await callback.answer("Not enough Ruzcoin", show_alert=True)
         return
     
     cur.pay(50)
@@ -1122,7 +1265,7 @@ async def cb_pay_jail(callback: CallbackQuery):
     db.update_player(room.code, cur)
     
     await callback.answer()
-    await send_board(room, f"💰 {cur.name} заплатил 50 Ruzcoin и вышел из тюрьмы!")
+    await send_board(room, f"💰 {cur.name} paid 50 Ruzcoin and got out of jail!")
     await do_roll(room)
 
 
@@ -1130,7 +1273,7 @@ async def cb_pay_jail(callback: CallbackQuery):
 async def cmd_buyout(message: Message):
     room_code = db.get_user_room(message.from_user.id)
     if not room_code:
-        await message.answer("Вы не в игре.")
+        await message.answer("You're not in a game.")
         return
     
     room = db.get_room(room_code)
@@ -1139,24 +1282,24 @@ async def cmd_buyout(message: Message):
     
     cur = room.current_player()
     if not cur or cur.user_id != message.from_user.id:
-        await message.answer("Сейчас не ваш ход.")
+        await message.answer("Not your turn.")
         return
     
     if room.awaiting_buy is None:
-        await message.answer("Сейчас нет возможности выкупа.")
+        await message.answer("No buyout available now.")
         return
     
     idx = room.awaiting_buy
     cell = BOARD[idx]
     price = cell["price"] * 2
     
-    if cur.money < price:        
-        await message.answer(f"Недостаточно Ruzcoin. Нужно: {price}")
+    if cur.money < price:
+        await message.answer(f"Not enough Ruzcoin. Need: {price}")
         return
     
     owner_id = room.ownership.get(idx)
     if owner_id == cur.user_id:
-        await message.answer("Это уже ваша территория.")
+        await message.answer("This is already your property.")
         return
     
     if owner_id:
@@ -1172,7 +1315,7 @@ async def cmd_buyout(message: Message):
     db.update_room(room)
     db.update_player(room.code, cur)
     
-    await send_board(room, f"💼 **{cur.name}** принудительно выкупил **{cell['name']}** за {price} Ruzcoin!")
+    await send_board(room, f"💼 **{cur.name}** forcibly bought **{cell['name']}** for {price} Ruzcoin!")
     await end_turn(room)
 
 
@@ -1181,12 +1324,12 @@ async def cmd_buyout(message: Message):
 async def cmd_room(message: Message):
     room_code = db.get_user_room(message.from_user.id)
     if not room_code:
-        await message.answer("Вы не в комнате. Используйте /create или /join")
+        await message.answer("You're not in a room. Use /create or /join")
         return
     
     room = db.get_room(room_code)
     if not room:
-        await message.answer("Комната не найдена.")
+        await message.answer("Room not found.")
         return
     
     await show_lobby(message, room)
@@ -1196,12 +1339,12 @@ async def cmd_room(message: Message):
 async def cmd_board(message: Message):
     room_code = db.get_user_room(message.from_user.id)
     if not room_code:
-        await message.answer("Вы не в игре.")
+        await message.answer("You're not in a game.")
         return
     
     room = db.get_room(room_code)
-    if not room:        
-        await message.answer("Комната не найдена.")
+    if not room:
+        await message.answer("Room not found.")
         return
     
     await send_board(room)
@@ -1210,24 +1353,24 @@ async def cmd_board(message: Message):
 @router.message(Command("help"))
 async def cmd_help(message: Message):
     text = (
-        "🎩 **RUZOPOLY - Команды**\n\n"
-        "/start - Начать\n"
-        "/create - Создать комнату\n"
-        "/join - Присоединиться по коду\n"
-        "/room - Информация о комнате\n"
-        "/board - Показать поле\n"
-        "/roll - Бросить кубики\n"
-        "/buyout - Принудительный выкуп территории\n"
-        "/help - Эта справка\n\n"
-        "💰 Валюта: **Ruzcoin**\n"
-        "🎲 Правила как в классической Монополии!"
+        "🎩 **RUZOPOLY - Commands**\n\n"
+        "/start - Start\n"
+        "/create - Create room\n"
+        "/join - Join by code\n"
+        "/room - Room info\n"
+        "/board - Show board\n"
+        "/roll - Roll dice\n"
+        "/buyout - Force buyout property\n"
+        "/help - This help\n\n"
+        "💰 Currency: **Ruzcoin**\n"
+        "🎲 Rules like classic Monopoly!"
     )
     await message.answer(text, parse_mode="Markdown")
 
 
 # ================== ЗАПУСК ==================
 async def main():
-    print("🚀 Бот запущен!")
+    print("🚀 Bot started!")
     await dp.start_polling(bot)
 
 
