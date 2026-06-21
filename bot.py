@@ -690,7 +690,8 @@ async def show_lobby(message_or_cb, room: Room):
         f"👥 Игроки: {len(room.players)}/{room.max_players}\n\n"
         f"{players_text}\n\n"
         f"Ожидаем игроков..."
-    )    kb = InlineKeyboardMarkup(inline_keyboard=[
+    )    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🤖 Добавить бота", callback_data=f"addbot_{room.code}")],
         [InlineKeyboardButton(text="🚀 Начать игру", callback_data=f"start_{room.code}")],
         [InlineKeyboardButton(text="🔄 Обновить", callback_data=f"lobby_{room.code}")],
