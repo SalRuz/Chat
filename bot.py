@@ -752,7 +752,7 @@ async def cb_start_game(callback: CallbackQuery):
     
     room.is_started = True
     db.update_room(room)
-        await callback.message.edit_text("🎲 Игра начинается! Бросаем кубики...")
+    await callback.message.edit_text("🎲 Игра начинается! Бросаем кубики...")
     await send_board(room, "🎲 **Игра началась!** Первый ход:")
     await maybe_bot_turn(room)
 
