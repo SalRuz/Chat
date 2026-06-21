@@ -951,7 +951,8 @@ async def process_cell(room: Room, player: Player):
         await end_turn(room)
     elif ctype == "free_parking":
         await send_board(room, f"🅿️ {player.name} отдыхает на парковке.")
-        await end_turn(room)    elif ctype == "go_to_jail":
+        await end_turn(room)    
+    elif ctype == "go_to_jail":
         player.position = 10
         player.in_jail = True
         player.jail_turns = 0
