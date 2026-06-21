@@ -1649,7 +1649,354 @@ async def process_cell(room: Room, player: Player, dice_sum: int, is_double: boo
         
         await turn_end_delay(room.code, 10)
         await end_turn(room)
+        
+# Добавьте эти функции перед handle_property
 
+def can_build_houses(room: Room, player_id: int, cell_idx: int) -> bool:
+    """Проверка возможности строительства домов"""
+    cell = BOARD[cell_idx]
+    if cell.get("type") != "property":
+        return False
+    if cell.get("group") in ["station", "utility"]:
+        return False
+    
+    # Проверяем владение всей группой
+    group = cell.get("group")
+    group_cells = [i for i, c in enumerate(BOARD) if c.get("group") == group]
+    
+    for idx in group_cells:
+        if idx not in room.ownership or room.ownership[idx][0] != player_id:
+            return False
+    
+    return True
+
+
+def get_house_price(cell_idx: int) -> int:
+    """Получить цену дома для территории"""
+    cell = BOARD[cell_idx]
+    return cell.get("house", 50)
+
+
+def can_build_hotel(room: Room, cell_idx: int) -> bool:
+    """Проверка возможности строительства отеля"""
+    if cell_idx not in room.ownership:
+        return False
+    
+    _, houses = room.ownership[cell_idx]
+    return houses == 4
+
+
+# Замените функцию handle_property на эту:
+
+async def handle_property(room: Room, player: Player, cell, dice_sum: int, is_double: bool = False):
+    idx = player.position
+    if idx in room.ownership:
+        owner_id, houses = room.ownership[idx]
+        if owner_id == player.user_id:
+            room.add_event(t('own_property', room.language).format(player.name, cell['name']))
+            
+            # Предлагаем построить дом/отель
+            if can_build_houses(room, player.user_id, idx):
+                house_price = get_house_price(idx)
+                
+                if houses < 4 and player.money >= house_price:
+                    # Можем построить дом
+                    room.awaiting_buy = idx
+                    room.awaiting_buyout = False
+                    db.update_room(room)
+                    
+                    room.add_event(f"🏗️ Build house on {cell['name']} for ${house_price}? ({houses}/4 houses)")
+                    await send_board_to_all(room)
+                    room.turn_timer_task = asyncio.create_task(turn_timeout(room.code))
+                    return
+                    
+                elif houses == 4 and player.money >= house_price:
+                    # Можем построить отель
+                    room.awaiting_buy = idx
+                    room.awaiting_buyout = False
+                    db.update_room(room)
+                    
+                    room.add_event(f"🏨 Build HOTEL on {cell['name']} for ${house_price}?")
+                    await send_board_to_all(room)
+                    room.turn_timer_task = asyncio.create_task(turn_timeout(room.code))
+                    return
+            
+            await send_board_to_all(room)
+            
+            if is_double:
+                room.can_roll = True
+                db.update_room(room)
+                await send_board_to_all(room)
+            else:
+                await turn_end_delay(room.code, 10)
+                await end_turn(room)
+        else:
+            owner = room.players[owner_id]
+            
+            # Расчет ренты по правилам
+            if cell.get("group") == "station":
+                station_count = count_owned_stations(room, owner_id)
+                rent = calculate_rent(cell, houses, station_count, dice_sum)
+            elif cell.get("group") == "utility":
+                utility_count = count_owned_utilities(room, owner_id)
+                rent = calculate_rent(cell, houses, utility_count, dice_sum)
+            else:
+                rent = calculate_rent(cell, houses, 1, dice_sum)
+            
+            player.pay(rent)
+            owner.receive(rent)
+            db.update_player(room.code, player)
+            db.update_player(room.code, owner)
+            room.add_event(t('rent_paid', room.language).format(player.name, rent, owner.name, cell['name']))
+            
+            await check_player_debt(room, player)
+            
+            if room.allow_buyout and cell.get("group") not in ["station", "utility"]:
+                room.awaiting_buy = idx
+                room.awaiting_buyout = True
+                db.update_room(room)
+                room.turn_timer_task = asyncio.create_task(turn_timeout(room.code))
+            
+            await send_board_to_all(room)
+            
+            if not room.allow_buyout or cell.get("group") in ["station", "utility"]:
+                if is_double:
+                    room.can_roll = True
+                    db.update_room(room)
+                    await send_board_to_all(room)
+                else:
+                    await turn_end_delay(room.code, 10)
+                    await end_turn(room)
+    else:
+        if player.money >= cell["price"]:
+            room.awaiting_buy = idx
+            room.awaiting_buyout = False
+            db.update_room(room)
+            room.add_event(t('free_property', room.language).format(cell['name'], cell['price'], cell['rent'][0]))
+            await send_board_to_all(room)
+            
+            room.turn_timer_task = asyncio.create_task(turn_timeout(room.code))
+            
+            if player.is_bot:
+                await asyncio.sleep(1.5)
+                player.pay(cell["price"])
+                room.ownership[idx] = (player.user_id, 0)
+                db.set_ownership(room.code, idx, player.user_id, 0)
+                room.awaiting_buy = None
+                room.awaiting_buyout = False
+                db.update_room(room)
+                db.update_player(room.code, player)
+                room.add_event(t('property_bought', room.language).format(player.name, cell['name'], cell['price']))
+                
+                if check_all_stations_owned(room, player.user_id):
+                    await end_game(room, player, 'stations')
+                    return
+                
+                await send_board_to_all(room)
+                
+                if is_double:
+                    room.can_roll = True
+                    db.update_room(room)
+                    await send_board_to_all(room)
+                else:
+                    await turn_end_delay(room.code, 10)
+                    await end_turn(room)
+        else:
+            room.add_event(t('not_enough_money', room.language).format(player.name))
+            await send_board_to_all(room)
+            
+            if is_double:
+                room.can_roll = True
+                db.update_room(room)
+                await send_board_to_all(room)
+            else:
+                await turn_end_delay(room.code, 10)
+                await end_turn(room)
+
+
+# Обновите функцию send_board_to_all (часть с кнопками):
+
+# Найдите эту часть и замените:
+        kb_buttons = []
+        if cur and room.is_started and user_id == cur.user_id and not room.is_moving:
+            # Кнопка броска кубиков только если можно бросать
+            if room.can_roll and not room.awaiting_buy:
+                kb_buttons.append([InlineKeyboardButton(text=t('roll_dice', room.language), callback_data=f"roll_{room.code}")])
+            
+            if room.awaiting_buy is not None:
+                cell = BOARD[room.awaiting_buy]
+                
+                # Проверяем, это строительство дома/отеля или покупка/выкуп
+                if room.awaiting_buy in room.ownership and room.ownership[room.awaiting_buy][0] == cur.user_id:
+                    # Строительство дома/отеля на своей территории
+                    _, houses = room.ownership[room.awaiting_buy]
+                    house_price = get_house_price(room.awaiting_buy)
+                    
+                    if houses < 4:
+                        kb_buttons.append([InlineKeyboardButton(
+                            text=f"🏗️ Build House (${house_price})",
+                            callback_data=f"buildhouse_{room.code}")])
+                    elif houses == 4:
+                        kb_buttons.append([InlineKeyboardButton(
+                            text=f"🏨 Build Hotel (${house_price})",
+                            callback_data=f"buildhotel_{room.code}")])
+                    
+                    kb_buttons.append([InlineKeyboardButton(text=t('skip', room.language), callback_data=f"skipbuy_{room.code}")])
+                
+                elif room.awaiting_buyout:
+                    # Выкуп чужой территории
+                    owner_id, houses = room.ownership[room.awaiting_buy]
+                    buyout_price = calculate_buyout_price(cell, houses)
+                    kb_buttons.append([InlineKeyboardButton(
+                        text=t('buyout_property', room.language).format(cell['name'], buyout_price),
+                        callback_data=f"buyout_{room.code}")])
+                    kb_buttons.append([InlineKeyboardButton(text=t('skip', room.language), callback_data=f"skipbuy_{room.code}")])
+                else:
+                    # Покупка свободной территории
+                    kb_buttons.append([InlineKeyboardButton(
+                        text=t('buy_property', room.language).format(cell['name'], cell['price']),
+                        callback_data=f"buy_{room.code}")])
+                    kb_buttons.append([InlineKeyboardButton(text=t('skip', room.language), callback_data=f"skipbuy_{room.code}")])
+            
+            if cur.in_jail and not room.awaiting_buy:
+                kb_buttons.append([InlineKeyboardButton(text=t('pay_jail', room.language), callback_data=f"payjail_{room.code}")])
+            
+            if cur.money < 0:
+                properties = get_player_properties(room, cur.user_id)
+                if properties:
+                    for prop_idx, prop_cell, houses in properties[:3]:
+                        sell_price = calculate_sell_price(prop_cell, houses)
+                        kb_buttons.append([InlineKeyboardButton(
+                            text=t('sell_property', room.language).format(prop_cell['name']),
+                            callback_data=f"sell_{room.code}_{prop_idx}")])
+
+
+# Добавьте новые обработчики для строительства:
+
+@router.callback_query(F.data.startswith("buildhouse_"))
+async def cb_build_house(callback: CallbackQuery):
+    lang = db.get_user_language(callback.from_user.id)
+    code = callback.data.split("_")[1]
+    room = db.get_room(code)
+    if not room:
+        await callback.answer(t('room_not_found', lang), show_alert=True)
+        return
+    
+    cur = room.current_player()
+    if not cur or cur.user_id != callback.from_user.id:
+        await callback.answer(t('not_your_turn', lang), show_alert=True)
+        return
+    
+    if room.awaiting_buy is None:
+        await callback.answer("Nothing to build", show_alert=True)
+        return
+    
+    idx = room.awaiting_buy
+    cell = BOARD[idx]
+    
+    if idx not in room.ownership or room.ownership[idx][0] != cur.user_id:
+        await callback.answer("Not your property", show_alert=True)
+        return
+    
+    _, houses = room.ownership[idx]
+    house_price = get_house_price(idx)
+    
+    if houses >= 4:
+        await callback.answer("Maximum houses already built", show_alert=True)
+        return
+    
+    if cur.money < house_price:
+        await callback.answer(t('not_enough_ruzcoin', lang), show_alert=True)
+        return
+    
+    # Строим дом
+    cur.pay(house_price)
+    room.ownership[idx] = (cur.user_id, houses + 1)
+    db.set_ownership(room.code, idx, cur.user_id, houses + 1)
+    db.update_player(room.code, cur)
+    
+    room.awaiting_buy = None
+    
+    if room.turn_timer_task and not room.turn_timer_task.done():
+        room.turn_timer_task.cancel()
+    
+    db.update_room(room)
+    
+    await callback.answer()
+    room.add_event(f"🏗️ {cur.name} built house on {cell['name']}! ({houses + 1}/4)")
+    
+    await send_board_to_all(room)
+    
+    if cur.doubles_count > 0:
+        room.can_roll = True
+        db.update_room(room)
+        await send_board_to_all(room)
+    else:
+        await turn_end_delay(room.code, 10)
+        await end_turn(room)
+
+
+@router.callback_query(F.data.startswith("buildhotel_"))
+async def cb_build_hotel(callback: CallbackQuery):
+    lang = db.get_user_language(callback.from_user.id)
+    code = callback.data.split("_")[1]
+    room = db.get_room(code)
+    if not room:
+        await callback.answer(t('room_not_found', lang), show_alert=True)
+        return
+    
+    cur = room.current_player()
+    if not cur or cur.user_id != callback.from_user.id:
+        await callback.answer(t('not_your_turn', lang), show_alert=True)
+        return
+    
+    if room.awaiting_buy is None:
+        await callback.answer("Nothing to build", show_alert=True)
+        return
+    
+    idx = room.awaiting_buy
+    cell = BOARD[idx]
+    
+    if idx not in room.ownership or room.ownership[idx][0] != cur.user_id:
+        await callback.answer("Not your property", show_alert=True)
+        return
+    
+    _, houses = room.ownership[idx]
+    house_price = get_house_price(idx)
+    
+    if houses != 4:
+        await callback.answer("Need 4 houses first", show_alert=True)
+        return
+    
+    if cur.money < house_price:
+        await callback.answer(t('not_enough_ruzcoin', lang), show_alert=True)
+        return
+    
+    # Строим отель (5 = отель)
+    cur.pay(house_price)
+    room.ownership[idx] = (cur.user_id, 5)
+    db.set_ownership(room.code, idx, cur.user_id, 5)
+    db.update_player(room.code, cur)
+    
+    room.awaiting_buy = None
+    
+    if room.turn_timer_task and not room.turn_timer_task.done():
+        room.turn_timer_task.cancel()
+    
+    db.update_room(room)
+    
+    await callback.answer()
+    room.add_event(f"🏨 {cur.name} built HOTEL on {cell['name']}!")
+    
+    await send_board_to_all(room)
+    
+    if cur.doubles_count > 0:
+        room.can_roll = True
+        db.update_room(room)
+        await send_board_to_all(room)
+    else:
+        await turn_end_delay(room.code, 10)
+        await end_turn(room)
 
 async def handle_property(room: Room, player: Player, cell, dice_sum: int, is_double: bool = False):
     idx = player.position
