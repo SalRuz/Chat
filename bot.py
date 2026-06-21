@@ -491,7 +491,8 @@ def _cell_rect(idx: int, cell: float):
     elif idx <= 30:
         col = idx - 20
         row = 0
-    else:        col = 10
+    else:
+        col = 10
         row = idx - 30
     return col * cell, row * cell, (col + 1) * cell, (row + 1) * cell
 
