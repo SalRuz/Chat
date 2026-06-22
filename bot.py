@@ -23,7 +23,6 @@ from aiogram.types import (
 from PIL import Image, ImageDraw, ImageFont
 from dotenv import load_dotenv
 
-# Загрузка токена из .env
 load_dotenv()
 API_TOKEN = os.getenv("BOT_TOKEN")
 
@@ -47,7 +46,8 @@ TRANSLATIONS = {
         'choose_max_players': "👥 Choose max players:",
         'players': "players",
         'password_question': "Max players: {}. Password?",
-        'with_password': "🔒 With Password",        'no_password': "🔓 No Password",
+        'with_password': "🔒 With Password",
+        'no_password': "🔓 No Password",
         'enter_password': "🔐 Enter password for the room:",
         'allow_buyout_question': "Allow forced property buyout?",
         'allow_buyout': "✅ Allow Buyout",
@@ -96,7 +96,8 @@ TRANSLATIONS = {
         'purchase_declined': "❌ {} declined the purchase.",
         'timeout': "⏰ Time's up! {}'s turn skipped.",
         'jail_doubles': "🎲 {} rolled {}+{} (doubles!) and got out of jail!",
-        'jail_no_doubles': "🎲 {} in jail. Rolled {}+{}. Attempts left: {}",        'jail_pay_forced': "🎲 {} didn't roll doubles for 3 turns. Pays $150 and exits.",
+        'jail_no_doubles': "🎲 {} in jail. Rolled {}+{}. Attempts left: {}",
+        'jail_pay_forced': "🎲 {} didn't roll doubles for 3 turns. Pays $150 and exits.",
         'jail_paid_out': "💰 {} paid $150 and got out of jail!",
         'joined_game': "🎉 **{}** joined the game!",
         'available_rooms': "📋 **Available Rooms:**\n\n",
@@ -145,7 +146,8 @@ TRANSLATIONS = {
         'room_info': "🏠 **Комната Ruzopoly**\n🔑 Код: `{}`\n🔒 Пароль: `{}`\n👥 Игроки: {}/{}\n💼 Выкуп: {}\n⏰ Время хода: {}с\n\n{}\n\nОжидаем игроков...",
         'enabled': 'Включен',
         'disabled': 'Выключен',
-        'none': 'нет',        'add_bot': "🤖 Добавить бота",
+        'none': 'нет',
+        'add_bot': "🤖 Добавить бота",
         'start_game': "🚀 Начать игру",
         'refresh': "🔄 Обновить",
         'room_not_found': "Комната не найдена",
@@ -194,7 +196,8 @@ TRANSLATIONS = {
         'wrong_password': "❌ Неверный пароль.",
         'already_in_room': "Вы уже в этой комнате!",
         'joined_room': "✅ Вы присоединились к комнате `{}`!",
-        'only_creator_start': "Только создатель может начать игру!",        'not_enough_ruzcoin': "Недостаточно денег",
+        'only_creator_start': "Только создатель может начать игру!",
+        'not_enough_ruzcoin': "Недостаточно денег",
         'nothing_to_buy': "Нечего покупать",
         'language_selected': "Язык установлен на Русский! 🇷🇺",
         'player_eliminated': "💀 {} выбыл из игры!",
@@ -211,18 +214,19 @@ TRANSLATIONS = {
     }
 }
 
+
 def init_db():
     """Database initialization with migration support"""
     conn = sqlite3.connect(str(DB_PATH))
     cursor = conn.cursor()
-    
+
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
     users_exists = cursor.fetchone() is not None
-    
+
     if users_exists:
         cursor.execute("PRAGMA table_info(users)")
         columns = [column[1] for column in cursor.fetchall()]
-        
+
         if 'language' not in columns:
             cursor.execute("ALTER TABLE users ADD COLUMN language TEXT DEFAULT 'en'")
             print("✅ Added 'language' column to users table")
@@ -236,14 +240,15 @@ def init_db():
             )
         ''')
         print("✅ Created users table")
-    
+
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='rooms'")
     rooms_exists = cursor.fetchone() is not None
-    
+
     if rooms_exists:
         cursor.execute("PRAGMA table_info(rooms)")
         columns = [column[1] for column in cursor.fetchall()]
-                if 'language' not in columns:
+
+        if 'language' not in columns:
             cursor.execute("ALTER TABLE rooms ADD COLUMN language TEXT DEFAULT 'en'")
         if 'player_ids' not in columns:
             cursor.execute("ALTER TABLE rooms ADD COLUMN player_ids TEXT DEFAULT '[]'")
@@ -272,7 +277,7 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-    
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS players (
             room_code TEXT NOT NULL,
@@ -290,12 +295,13 @@ def init_db():
             FOREIGN KEY (room_code) REFERENCES rooms(code)
         )
     ''')
-    
+
     cursor.execute("PRAGMA table_info(players)")
-    player_columns = [column[1] for column in cursor.fetchall()]    if 'doubles_count' not in player_columns:
+    player_columns = [column[1] for column in cursor.fetchall()]
+    if 'doubles_count' not in player_columns:
         cursor.execute("ALTER TABLE players ADD COLUMN doubles_count INTEGER DEFAULT 0")
         print("✅ Added 'doubles_count' column to players table")
-    
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS ownership (
             room_code TEXT NOT NULL,
@@ -306,12 +312,12 @@ def init_db():
             FOREIGN KEY (room_code) REFERENCES rooms(code)
         )
     ''')
-    
+
     cursor.execute("PRAGMA table_info(ownership)")
     ownership_columns = [column[1] for column in cursor.fetchall()]
     if 'houses' not in ownership_columns:
         cursor.execute("ALTER TABLE ownership ADD COLUMN houses INTEGER DEFAULT 0")
-    
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS user_room (
             user_id INTEGER PRIMARY KEY,
@@ -319,7 +325,7 @@ def init_db():
             FOREIGN KEY (room_code) REFERENCES rooms(code)
         )
     ''')
-    
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS player_messages (
             room_code TEXT NOT NULL,
@@ -329,19 +335,21 @@ def init_db():
             FOREIGN KEY (room_code) REFERENCES rooms(code)
         )
     ''')
-    
+
     conn.commit()
     conn.close()
     print(f"✅ Database initialized: {DB_PATH}")
 
+
 init_db()
 
 # ================== ГЛОБАЛЬНЫЙ КЭШ СОСТОЯНИЙ КОМНАТ ==================
-# Хранит временные состояния, которые не сохраняются в БД
 ROOM_STATES: Dict[str, dict] = {}
 
+
 def get_room_state(room_code: str) -> dict:
-    """Получить или создать состояние комнаты в памяти"""    if room_code not in ROOM_STATES:
+    """Получить или создать состояние комнаты в памяти"""
+    if room_code not in ROOM_STATES:
         ROOM_STATES[room_code] = {
             'event_log': [],
             'in_cooldown': False,
@@ -349,10 +357,12 @@ def get_room_state(room_code: str) -> dict:
         }
     return ROOM_STATES[room_code]
 
+
 def clear_room_state(room_code: str):
     """Очистить состояние комнаты при завершении игры"""
     if room_code in ROOM_STATES:
         del ROOM_STATES[room_code]
+
 
 # ================== ДАННЫЕ ПОЛЯ ==================
 GROUP_COLORS_HEX = {
@@ -390,7 +400,8 @@ BOARD = [
     {"name": "B&O Railroad", "type": "property", "group": "station", "price": 200, "rent": [25, 50, 100, 200]},
     {"name": "Atlantic Ave", "type": "property", "group": "yellow", "price": 260, "rent": [22, 110, 330, 800, 975, 1150], "house": 150},
     {"name": "Ventnor Ave", "type": "property", "group": "yellow", "price": 260, "rent": [22, 110, 330, 800, 975, 1150], "house": 150},
-    {"name": "Water Works", "type": "property", "group": "utility", "price": 150, "rent": [4, 10]},    {"name": "Marvin Gardens", "type": "property", "group": "yellow", "price": 280, "rent": [24, 120, 360, 850, 1025, 1200], "house": 150},
+    {"name": "Water Works", "type": "property", "group": "utility", "price": 150, "rent": [4, 10]},
+    {"name": "Marvin Gardens", "type": "property", "group": "yellow", "price": 280, "rent": [24, 120, 360, 850, 1025, 1200], "house": 150},
     {"name": "GO TO JAIL", "type": "go_to_jail"},
     {"name": "Pacific Ave", "type": "property", "group": "green", "price": 300, "rent": [26, 130, 390, 900, 1100, 1275], "house": 200},
     {"name": "North Carolina Ave", "type": "property", "group": "green", "price": 300, "rent": [26, 130, 390, 900, 1100, 1275], "house": 200},
@@ -428,6 +439,7 @@ PLAYER_COLORS = [
     "#9B59B6", "#E67E22", "#1ABC9C", "#FF69B4",
 ]
 
+
 # ================== КЛАССЫ ==================
 @dataclass
 class Player:
@@ -439,7 +451,8 @@ class Player:
     is_bot: bool = False
     in_jail: bool = False
     jail_turns: int = 0
-    is_active: bool = True    doubles_count: int = 0
+    is_active: bool = True
+    doubles_count: int = 0
 
     def pay(self, amount: int):
         self.money -= amount
@@ -469,12 +482,8 @@ class Room:
     player_ids: Set[int] = field(default_factory=set)
     allow_buyout: bool = True
     turn_time: int = 30
-    event_log: List[str] = field(default_factory=list)  # устарело, используется через кэш
     player_message_ids: Dict[int, int] = field(default_factory=dict)
-    countdown_seconds: int = 0
-    is_moving: bool = False   # устарело, используется через кэш
     can_roll: bool = True
-    in_cooldown: bool = False # устарело, используется через кэш
 
     def active_players(self) -> List[Player]:
         return [p for p in self.players.values() if p.is_active]
@@ -488,7 +497,8 @@ class Room:
     def next_turn(self):
         active = self.active_players()
         if not active:
-            return        self.current_turn = (self.current_turn + 1) % len(active)
+            return
+        self.current_turn = (self.current_turn + 1) % len(active)
 
     def add_event(self, event: str):
         """Добавить событие в глобальный кэш комнаты"""
@@ -506,11 +516,14 @@ class Database:
         cursor = conn.cursor()
         cursor.execute("SELECT language FROM users WHERE id = ?", (user_id,))
         existing = cursor.fetchone()
-        
+
         if existing:
             conn.execute("UPDATE users SET username = ? WHERE id = ?", (username, user_id))
         else:
-            conn.execute("INSERT INTO users (id, username, language) VALUES (?, ?, ?)", (user_id, username, language))
+            conn.execute(
+                "INSERT INTO users (id, username, language) VALUES (?, ?, ?)",
+                (user_id, username, language)
+            )
         conn.commit()
         conn.close()
 
@@ -522,7 +535,7 @@ class Database:
             cursor.execute("SELECT language FROM users WHERE id = ?", (user_id,))
             row = cursor.fetchone()
             return row[0] if row else 'en'
-        except:
+        except Exception:
             return 'en'
         finally:
             conn.close()
@@ -533,22 +546,28 @@ class Database:
         try:
             conn.execute("UPDATE users SET language = ? WHERE id = ?", (language, user_id))
             conn.commit()
-        except:
+        except Exception:
             pass
         finally:
             conn.close()
+
     @staticmethod
-    def create_room(room: Room) -> bool:
+    def create_room(room: 'Room') -> bool:
         conn = sqlite3.connect(str(DB_PATH))
         try:
             conn.execute(
-                """INSERT INTO rooms 
-                   (code, creator_id, chat_id, max_players, password, current_turn, is_started, last_message_id, 
-                    chance_deck, risk_deck, awaiting_buy, language, player_ids, allow_buyout, turn_time)
+                """INSERT INTO rooms
+                   (code, creator_id, chat_id, max_players, password, current_turn, is_started,
+                    last_message_id, chance_deck, risk_deck, awaiting_buy, language,
+                    player_ids, allow_buyout, turn_time)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (room.code, room.creator_id, room.chat_id, room.max_players, room.password, room.current_turn, room.is_started,
-                 room.last_message_id, json.dumps(room.chance_deck), json.dumps(room.risk_deck), room.awaiting_buy, room.language,
-                 json.dumps(list(room.player_ids)), room.allow_buyout, room.turn_time)
+                (
+                    room.code, room.creator_id, room.chat_id, room.max_players, room.password,
+                    room.current_turn, room.is_started, room.last_message_id,
+                    json.dumps(room.chance_deck), json.dumps(room.risk_deck),
+                    room.awaiting_buy, room.language,
+                    json.dumps(list(room.player_ids)), room.allow_buyout, room.turn_time
+                )
             )
             conn.commit()
             return True
@@ -558,7 +577,7 @@ class Database:
             conn.close()
 
     @staticmethod
-    def get_room(code: str) -> Optional[Room]:
+    def get_room(code: str) -> Optional['Room']:
         conn = sqlite3.connect(str(DB_PATH))
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM rooms WHERE code = ?", (code,))
@@ -568,24 +587,39 @@ class Database:
             return None
 
         room = Room(
-            code=row[0], creator_id=row[1], chat_id=row[2], max_players=row[3], password=row[4], current_turn=row[5],
-            is_started=bool(row[6]), last_message_id=row[7],
+            code=row[0],
+            creator_id=row[1],
+            chat_id=row[2],
+            max_players=row[3],
+            password=row[4],
+            current_turn=row[5],
+            is_started=bool(row[6]),
+            last_message_id=row[7],
             chance_deck=json.loads(row[8]) if row[8] else CHANCE_CARDS.copy(),
             risk_deck=json.loads(row[9]) if row[9] else RISK_CARDS.copy(),
-            awaiting_buy=row[10], language=row[11] if len(row) > 11 else 'en',
-            player_ids=set(json.loads(row[12])) if len(row) > 12 else set(),
+            awaiting_buy=row[10],
+            language=row[11] if len(row) > 11 else 'en',
+            player_ids=set(json.loads(row[12])) if len(row) > 12 and row[12] else set(),
             allow_buyout=bool(row[13]) if len(row) > 13 else True,
-            turn_time=row[14] if len(row) > 14 else 30
+            turn_time=row[14] if len(row) > 14 else 30,
         )
 
         cursor.execute("SELECT * FROM players WHERE room_code = ?", (code,))
         for p_row in cursor.fetchall():
             room.players[p_row[1]] = Player(
-                user_id=p_row[1], name=p_row[2], money=p_row[3], position=p_row[4], color=p_row[5], is_bot=bool(p_row[6]),
-                in_jail=bool(p_row[7]), jail_turns=p_row[8], is_active=bool(p_row[9]),
-                doubles_count=p_row[10] if len(p_row) > 10 else 0
+                user_id=p_row[1],
+                name=p_row[2],
+                money=p_row[3],
+                position=p_row[4],
+                color=p_row[5],
+                is_bot=bool(p_row[6]),
+                in_jail=bool(p_row[7]),
+                jail_turns=p_row[8],
+                is_active=bool(p_row[9]),
+                doubles_count=p_row[10] if len(p_row) > 10 else 0,
             )
             room.player_ids.add(p_row[1])
+
         cursor.execute("SELECT cell_idx, owner_id, houses FROM ownership WHERE room_code = ?", (code,))
         for o_row in cursor.fetchall():
             houses = o_row[2] if len(o_row) > 2 else 0
@@ -599,19 +633,25 @@ class Database:
         return room
 
     @staticmethod
-    def update_room(room: Room):
+    def update_room(room: 'Room'):
         conn = sqlite3.connect(str(DB_PATH))
         try:
             conn.execute(
                 """UPDATE rooms SET current_turn=?, is_started=?, last_message_id=?,
-                   chance_deck=?, risk_deck=?, awaiting_buy=?, language=?, player_ids=?, allow_buyout=?, turn_time=?
+                   chance_deck=?, risk_deck=?, awaiting_buy=?, language=?,
+                   player_ids=?, allow_buyout=?, turn_time=?
                    WHERE code=?""",
-                (room.current_turn, room.is_started, room.last_message_id, json.dumps(room.chance_deck), json.dumps(room.risk_deck),
-                 room.awaiting_buy, room.language, json.dumps(list(room.player_ids)), room.allow_buyout, room.turn_time, room.code)
+                (
+                    room.current_turn, room.is_started, room.last_message_id,
+                    json.dumps(room.chance_deck), json.dumps(room.risk_deck),
+                    room.awaiting_buy, room.language,
+                    json.dumps(list(room.player_ids)), room.allow_buyout, room.turn_time,
+                    room.code
+                )
             )
             conn.commit()
-        except:
-            pass
+        except Exception as e:
+            logging.error(f"update_room error: {e}")
         finally:
             conn.close()
 
@@ -620,10 +660,15 @@ class Database:
         conn = sqlite3.connect(str(DB_PATH))
         try:
             conn.execute(
-                """INSERT INTO players (room_code, user_id, name, money, position, color, is_bot, in_jail, jail_turns, is_active, doubles_count)
+                """INSERT INTO players
+                   (room_code, user_id, name, money, position, color,
+                    is_bot, in_jail, jail_turns, is_active, doubles_count)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (room_code, player.user_id, player.name, player.money, player.position, player.color, player.is_bot,
-                 player.in_jail, player.jail_turns, player.is_active, player.doubles_count)
+                (
+                    room_code, player.user_id, player.name, player.money, player.position,
+                    player.color, player.is_bot, player.in_jail, player.jail_turns,
+                    player.is_active, player.doubles_count
+                )
             )
             conn.commit()
             return True
@@ -635,88 +680,128 @@ class Database:
     @staticmethod
     def update_player(room_code: str, player: Player):
         conn = sqlite3.connect(str(DB_PATH))
-        conn.execute(            """UPDATE players SET money=?, position=?, in_jail=?, jail_turns=?, is_active=?, doubles_count=?
-               WHERE room_code=? AND user_id=?""",
-            (player.money, player.position, player.in_jail, player.jail_turns, player.is_active, player.doubles_count, room_code, player.user_id)
-        )
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute(
+                """UPDATE players SET money=?, position=?, in_jail=?, jail_turns=?,
+                   is_active=?, doubles_count=?
+                   WHERE room_code=? AND user_id=?""",
+                (
+                    player.money, player.position, player.in_jail, player.jail_turns,
+                    player.is_active, player.doubles_count, room_code, player.user_id
+                )
+            )
+            conn.commit()
+        except Exception as e:
+            logging.error(f"update_player error: {e}")
+        finally:
+            conn.close()
 
     @staticmethod
     def set_ownership(room_code: str, cell_idx: int, owner_id: int, houses: int = 0):
         conn = sqlite3.connect(str(DB_PATH))
-        conn.execute("INSERT OR REPLACE INTO ownership (room_code, cell_idx, owner_id, houses) VALUES (?, ?, ?, ?)",
-                    (room_code, cell_idx, owner_id, houses))
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO ownership (room_code, cell_idx, owner_id, houses) VALUES (?, ?, ?, ?)",
+                (room_code, cell_idx, owner_id, houses)
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
     @staticmethod
     def remove_ownership(room_code: str, cell_idx: int):
         conn = sqlite3.connect(str(DB_PATH))
-        conn.execute("DELETE FROM ownership WHERE room_code = ? AND cell_idx = ?", (room_code, cell_idx))
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute(
+                "DELETE FROM ownership WHERE room_code = ? AND cell_idx = ?",
+                (room_code, cell_idx)
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
     @staticmethod
     def set_user_room(user_id: int, room_code: str):
         conn = sqlite3.connect(str(DB_PATH))
-        conn.execute("INSERT OR REPLACE INTO user_room (user_id, room_code) VALUES (?, ?)", (user_id, room_code))
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO user_room (user_id, room_code) VALUES (?, ?)",
+                (user_id, room_code)
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
     @staticmethod
     def get_user_room(user_id: int) -> Optional[str]:
         conn = sqlite3.connect(str(DB_PATH))
         cursor = conn.cursor()
-        cursor.execute("SELECT room_code FROM user_room WHERE user_id = ?", (user_id,))
-        row = cursor.fetchone()
-        conn.close()
-        return row[0] if row else None
-    
+        try:
+            cursor.execute("SELECT room_code FROM user_room WHERE user_id = ?", (user_id,))
+            row = cursor.fetchone()
+            return row[0] if row else None
+        finally:
+            conn.close()
+
     @staticmethod
     def get_all_rooms() -> List[Dict]:
         conn = sqlite3.connect(str(DB_PATH))
         cursor = conn.cursor()
-        cursor.execute("SELECT code, password, max_players FROM rooms WHERE is_started = 0")
-        rooms = []
-        for row in cursor.fetchall():
-            cursor.execute("SELECT COUNT(*) FROM players WHERE room_code = ?", (row[0],))
-            player_count = cursor.fetchone()[0]
-            rooms.append({'code': row[0], 'has_password': bool(row[1]), 'max_players': row[2], 'current_players': player_count})
-        conn.close()
-        return rooms
+        try:
+            cursor.execute("SELECT code, password, max_players FROM rooms WHERE is_started = 0")
+            rooms = []
+            for row in cursor.fetchall():
+                cursor.execute("SELECT COUNT(*) FROM players WHERE room_code = ?", (row[0],))
+                player_count = cursor.fetchone()[0]
+                rooms.append({
+                    'code': row[0],
+                    'has_password': bool(row[1]),
+                    'max_players': row[2],
+                    'current_players': player_count
+                })
+            return rooms
+        finally:
+            conn.close()
+
     @staticmethod
     def set_player_message_id(room_code: str, user_id: int, message_id: int):
         conn = sqlite3.connect(str(DB_PATH))
-        conn.execute("INSERT OR REPLACE INTO player_messages (room_code, user_id, message_id) VALUES (?, ?, ?)",
-                    (room_code, user_id, message_id))
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO player_messages (room_code, user_id, message_id) VALUES (?, ?, ?)",
+                (room_code, user_id, message_id)
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
 
 db = Database()
 
+
 # ================== УТИЛИТЫ ==================
 def generate_code() -> str:
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+
 
 def get_available_color(room: Room) -> str:
     used = {p.color for p in room.players.values()}
     available = [c for c in PLAYER_COLORS if c not in used]
     return random.choice(available) if available else "#FFFFFF"
 
-def t(key: str, lang: str = 'en', **kwargs) -> str:
-    """Translate key to language"""
+
+def t(key: str, lang: str = 'en', *args) -> str:
+    """Translate key to language with positional args"""
     text = TRANSLATIONS.get(lang, TRANSLATIONS['en']).get(key, key)
-    if kwargs:
+    if args:
         try:
-            return text.format(*[kwargs[k] for k in sorted(kwargs.keys())])
-        except:
+            return text.format(*args)
+        except Exception:
             return text
     return text
 
+
 def calculate_rent(cell: dict, houses: int, owner_stations_count: int = 1, dice_sum: int = 0) -> int:
-    """Расчёт ренты по правилам оригинальной Monopoly"""
     if cell.get("group") == "station":
         return cell["rent"][min(owner_stations_count - 1, 3)]
     elif cell.get("group") == "utility":
@@ -725,19 +810,20 @@ def calculate_rent(cell: dict, houses: int, owner_stations_count: int = 1, dice_
     else:
         return cell["rent"][min(houses, 5)]
 
+
 def calculate_buyout_price(cell: dict, houses: int) -> int:
-    """Расчёт цены выкупа территории"""
     base_price = cell.get("price", 0)
     house_value = houses * cell.get("house", 50)
     return int(base_price * 1.5 + house_value)
 
+
 def calculate_sell_price(cell: dict, houses: int) -> int:
-    """Расчёт цены продажи территории"""
-    base_price = cell.get("price", 0)    house_value = houses * cell.get("house", 50) * 0.5
+    base_price = cell.get("price", 0)
+    house_value = houses * cell.get("house", 50) * 0.5
     return int(base_price * 0.5 + house_value)
 
+
 def get_player_properties(room: Room, player_id: int) -> List[Tuple[int, dict, int]]:
-    """Получить все территории игрока"""
     properties = []
     for cell_idx, (owner_id, houses) in room.ownership.items():
         if owner_id == player_id:
@@ -746,35 +832,37 @@ def get_player_properties(room: Room, player_id: int) -> List[Tuple[int, dict, i
                 properties.append((cell_idx, cell, houses))
     return properties
 
+
 def count_owned_stations(room: Room, player_id: int) -> int:
-    """Подсчет количества станций игрока"""
     stations = [i for i, cell in enumerate(BOARD) if cell.get("group") == "station"]
     return sum(1 for idx in stations if idx in room.ownership and room.ownership[idx][0] == player_id)
 
+
 def count_owned_utilities(room: Room, player_id: int) -> int:
-    """Подсчет количества коммунальных служб игрока"""
     utilities = [i for i, cell in enumerate(BOARD) if cell.get("group") == "utility"]
     return sum(1 for idx in utilities if idx in room.ownership and room.ownership[idx][0] == player_id)
 
+
 def check_all_stations_owned(room: Room, player_id: int) -> bool:
-    """Проверка владения всеми станциями"""
     stations = [i for i, cell in enumerate(BOARD) if cell.get("group") == "station"]
-    owned_stations = sum(1 for idx in stations if idx in room.ownership and room.ownership[idx][0] == player_id)
+    owned_stations = sum(
+        1 for idx in stations if idx in room.ownership and room.ownership[idx][0] == player_id
+    )
     return owned_stations == len(stations)
 
+
 def check_three_complete_streets(room: Room, player_id: int) -> bool:
-    """Проверка владения 3 полными улицами (группами цветных территорий)"""
     street_groups = ["brown", "lightblue", "pink", "orange", "red", "yellow", "green", "darkblue"]
-    
     complete_streets = 0
     for group in street_groups:
         group_cells = [i for i, cell in enumerate(BOARD) if cell.get("group") == group]
-        owned_in_group = sum(1 for idx in group_cells if idx in room.ownership and room.ownership[idx][0] == player_id)
-        
+        owned_in_group = sum(
+            1 for idx in group_cells if idx in room.ownership and room.ownership[idx][0] == player_id
+        )
         if owned_in_group == len(group_cells):
             complete_streets += 1
-    
     return complete_streets >= 3
+
 
 # ================== РЕНДЕР ПОЛЯ ==================
 def render_board(room: Room) -> bytes:
@@ -782,7 +870,8 @@ def render_board(room: Room) -> bytes:
     img = Image.new('RGB', (size, size), "#F5E9D3")
     draw = ImageDraw.Draw(img)
 
-    try:        font_big = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 11)
+    try:
+        font_big = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 11)
         font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 9)
         font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
     except Exception:
@@ -798,14 +887,22 @@ def render_board(room: Room) -> bytes:
         x1, y1, x2, y2 = _cell_rect(idx, cell_size)
 
         bg = "#FFF8DC"
-        if c["type"] == "go": bg = "#FFE4B5"
-        elif c["type"] == "jail": bg = "#FFDAB9"
-        elif c["type"] == "free_parking": bg = "#D3D3D3"
-        elif c["type"] == "go_to_jail": bg = "#FFB6C1"
-        elif c["type"] == "chance": bg = "#FFFACD"
-        elif c["type"] == "risk": bg = "#FFE4E1"
-        elif c["type"] == "chest": bg = "#E0FFFF"
-        elif c["type"] == "tax": bg = "#F0E68C"
+        if c["type"] == "go":
+            bg = "#FFE4B5"
+        elif c["type"] == "jail":
+            bg = "#FFDAB9"
+        elif c["type"] == "free_parking":
+            bg = "#D3D3D3"
+        elif c["type"] == "go_to_jail":
+            bg = "#FFB6C1"
+        elif c["type"] == "chance":
+            bg = "#FFFACD"
+        elif c["type"] == "risk":
+            bg = "#FFE4E1"
+        elif c["type"] == "chest":
+            bg = "#E0FFFF"
+        elif c["type"] == "tax":
+            bg = "#F0E68C"
 
         if idx in room.ownership:
             owner_id, houses = room.ownership[idx]
@@ -831,6 +928,7 @@ def render_board(room: Room) -> bytes:
             if houses > 0:
                 house_text = "🏠" * min(houses, 4) if houses < 5 else "🏨"
                 draw.text((x1 + 4, y1 + 30), house_text, fill="#000", font=font_small)
+
         draw.text((x1 + 4, y1 + 4), c["name"], fill="#000", font=font_big)
         if c["type"] == "property":
             draw.text((x1 + 4, y1 + 18), f"${c['price']}", fill="#555", font=font_small)
@@ -880,7 +978,8 @@ def _cell_rect(idx: int, cell: float):
 class CreateRoom(StatesGroup):
     wait_max = State()
     wait_password = State()
-    wait_buyout = State()    wait_turn_time = State()
+    wait_buyout = State()
+    wait_turn_time = State()
 
 
 class JoinRoom(StatesGroup):
@@ -898,44 +997,36 @@ dp.include_router(router)
 
 # ================== ТАЙМЕРЫ ==================
 async def turn_timeout(room_code: str):
-    """Автоматический переход хода через заданное время - только для ожидания решения"""
+    """Таймер ожидания решения игрока (покупка/выкуп)"""
     room = db.get_room(room_code)
     if not room or not room.is_started:
         return
-    
+
     cur = room.current_player()
     if not cur:
         return
-    
-    # Таймер с отображением оставшегося времени
+
     for remaining in range(room.turn_time, 0, -1):
         await asyncio.sleep(1)
         room = db.get_room(room_code)
         if not room or not room.is_started or room.awaiting_buy is None:
             return
-        
-        # Динамическое обновление времени с именем игрока
+
         cur = room.current_player()
         if cur:
-            timer_text = t('decision_time', room.language).format(cur.name, remaining)
+            timer_text = t('decision_time', room.language, cur.name, remaining)
             await send_board_to_all(room, timer_text=timer_text)
-    
-    # Время вышло
+
     room = db.get_room(room_code)
     if room and room.awaiting_buy is not None:
         cur = room.current_player()
         if cur:
-            # Если бот - автоматический бросок кубиков или действие
             if cur.is_bot:
-                # Бот пропускает покупку
                 room.awaiting_buy = None
-                room.awaiting_buyout = False                
-                if room.turn_timer_task and not room.turn_timer_task.done():
-                    room.turn_timer_task.cancel()
-                
+                room.awaiting_buyout = False
                 db.update_room(room)
-                room.add_event(t('purchase_declined', room.language).format(cur.name))
-                
+                room.add_event(t('purchase_declined', room.language, cur.name))
+
                 if cur.doubles_count > 0:
                     room.can_roll = True
                     db.update_room(room)
@@ -945,50 +1036,49 @@ async def turn_timeout(room_code: str):
                     await turn_end_delay(room.code, 5)
                     await end_turn(room)
             else:
-                room.add_event(t('timeout', room.language).format(cur.name))
+                room.add_event(t('timeout', room.language, cur.name))
                 await end_turn(room)
 
 
 async def movement_delay(room_code: str, seconds: int):
-    """Задержка перед перемещением с обратным отсчетом"""
+    """Задержка перед перемещением с обратным отсчётом"""
     room = db.get_room(room_code)
     if not room:
         return
-    
+
     state = get_room_state(room_code)
     state['in_cooldown'] = True
     state['is_moving'] = True
-    
+
     for remaining in range(seconds, 0, -1):
         room = db.get_room(room_code)
         if not room:
-            return
-        
-        timer_text = t('moving_countdown', room.language).format(remaining)
+            break
+        timer_text = t('moving_countdown', room.language, remaining)
         await send_board_to_all(room, timer_text=timer_text)
         await asyncio.sleep(1)
-    
+
     state['in_cooldown'] = False
     state['is_moving'] = False
 
 
 async def turn_end_delay(room_code: str, seconds: int):
-    """Задержка перед передачей хода с обратным отсчетом"""
+    """Задержка перед передачей хода с обратным отсчётом"""
     room = db.get_room(room_code)
     if not room:
         return
-    
-    state = get_room_state(room_code)    state['in_cooldown'] = True
-    
+
+    state = get_room_state(room_code)
+    state['in_cooldown'] = True
+
     for remaining in range(seconds, 0, -1):
         room = db.get_room(room_code)
         if not room:
-            return
-        
-        timer_text = t('turn_end_countdown', room.language).format(remaining)
+            break
+        timer_text = t('turn_end_countdown', room.language, remaining)
         await send_board_to_all(room, timer_text=timer_text)
         await asyncio.sleep(1)
-    
+
     state['in_cooldown'] = False
 
 
@@ -996,22 +1086,21 @@ async def turn_end_delay(room_code: str, seconds: int):
 async def send_board_to_all(room: Room, force_update: bool = False, timer_text: Optional[str] = None):
     """Редактирует одно сообщение для каждого игрока"""
     img_bytes = render_board(room)
-    photo = BufferedInputFile(img_bytes, filename="board.png")
 
     cur = room.current_player()
-    state = get_room_state(room.code)  # ← Получаем кэш
-    
+    state = get_room_state(room.code)
+
     # Строим текст сообщения
     text = ""
-    
-    # Сначала таймер если есть (ВСЕГДА ВВЕРХУ)
+
+    # Таймер всегда вверху
     if timer_text:
         text += f"{timer_text}\n"
-    
-    # Потом события (ВСЕГДА ПОКАЗЫВАЕМ из глобального кэша!)
+
+    # События из глобального кэша
     if state['event_log']:
         text += "\n".join(state['event_log'][-3:]) + "\n"
-    
+
     text += f"\n🎲 **RUZOPOLY** | Room: `{room.code}`\n"
     if cur:
         text += f"👤 Turn: **{cur.name}** (${cur.money})\n"
@@ -1027,46 +1116,82 @@ async def send_board_to_all(room: Room, force_update: bool = False, timer_text: 
     for user_id in room.player_ids:
         if user_id < 0:
             continue
-                    kb_buttons = []
-        
-        # Кнопки скрыты при КД и движении через state['in_cooldown'] и state['is_moving']
-        if cur and room.is_started and user_id == cur.user_id and not state['is_moving'] and not state['in_cooldown']:
-            # Кнопка броска кубиков только если можно бросать и нет ожидания решения
+
+        kb_buttons = []
+
+        # Кнопки скрыты при КД и движении
+        if (
+            cur and room.is_started
+            and user_id == cur.user_id
+            and not state['is_moving']
+            and not state['in_cooldown']
+        ):
+            # Кнопка броска кубиков
             if room.can_roll and room.awaiting_buy is None:
-                kb_buttons.append([InlineKeyboardButton(text=t('roll_dice', room.language), callback_data=f"roll_{room.code}")])
-            
-            # Кнопки покупки/выкупа только если есть ожидание решения
+                kb_buttons.append([
+                    InlineKeyboardButton(
+                        text=t('roll_dice', room.language),
+                        callback_data=f"roll_{room.code}"
+                    )
+                ])
+
+            # Кнопки покупки/выкупа
             if room.awaiting_buy is not None:
                 cell = BOARD[room.awaiting_buy]
-                
+
                 if room.awaiting_buyout:
                     owner_id, houses = room.ownership[room.awaiting_buy]
                     buyout_price = calculate_buyout_price(cell, houses)
-                    kb_buttons.append([InlineKeyboardButton(
-                        text=t('buyout_property', room.language).format(cell['name'], buyout_price),
-                        callback_data=f"buyout_{room.code}")])
-                    kb_buttons.append([InlineKeyboardButton(text=t('skip', room.language), callback_data=f"skipbuy_{room.code}")])
+                    kb_buttons.append([
+                        InlineKeyboardButton(
+                            text=t('buyout_property', room.language, cell['name'], buyout_price),
+                            callback_data=f"buyout_{room.code}"
+                        )
+                    ])
+                    kb_buttons.append([
+                        InlineKeyboardButton(
+                            text=t('skip', room.language),
+                            callback_data=f"skipbuy_{room.code}"
+                        )
+                    ])
                 else:
-                    kb_buttons.append([InlineKeyboardButton(
-                        text=t('buy_property', room.language).format(cell['name'], cell['price']),
-                        callback_data=f"buy_{room.code}")])
-                    kb_buttons.append([InlineKeyboardButton(text=t('skip', room.language), callback_data=f"skipbuy_{room.code}")])
-            
-            # Кнопка выхода из тюрьмы только если в тюрьме и нет ожидания решения
+                    kb_buttons.append([
+                        InlineKeyboardButton(
+                            text=t('buy_property', room.language, cell['name'], cell['price']),
+                            callback_data=f"buy_{room.code}"
+                        )
+                    ])
+                    kb_buttons.append([
+                        InlineKeyboardButton(
+                            text=t('skip', room.language),
+                            callback_data=f"skipbuy_{room.code}"
+                        )
+                    ])
+
+            # Кнопка выхода из тюрьмы
             if cur.in_jail and room.awaiting_buy is None:
-                kb_buttons.append([InlineKeyboardButton(text=t('pay_jail', room.language), callback_data=f"payjail_{room.code}")])
-            
-            # Кнопки продажи если в долгах
+                kb_buttons.append([
+                    InlineKeyboardButton(
+                        text=t('pay_jail', room.language),
+                        callback_data=f"payjail_{room.code}"
+                    )
+                ])
+
+            # Кнопки продажи при долге
             if cur.money < 0 and room.awaiting_buy is None:
                 properties = get_player_properties(room, cur.user_id)
-                if properties:
-                    for prop_idx, prop_cell, houses in properties[:3]:
-                        sell_price = calculate_sell_price(prop_cell, houses)
-                        kb_buttons.append([InlineKeyboardButton(
-                            text=t('sell_property', room.language).format(prop_cell['name']),
-                            callback_data=f"sell_{room.code}_{prop_idx}")])
+                for prop_idx, prop_cell, houses in properties[:3]:
+                    kb_buttons.append([
+                        InlineKeyboardButton(
+                            text=t('sell_property', room.language, prop_cell['name']),
+                            callback_data=f"sell_{room.code}_{prop_idx}"
+                        )
+                    ])
 
         kb = InlineKeyboardMarkup(inline_keyboard=kb_buttons) if kb_buttons else None
+
+        # Каждый раз создаём новый объект BufferedInputFile
+        photo = BufferedInputFile(img_bytes, filename="board.png")
 
         try:
             if user_id in room.player_message_ids:
@@ -1076,16 +1201,19 @@ async def send_board_to_all(room: Room, force_update: bool = False, timer_text: 
                         message_id=room.player_message_ids[user_id],
                         media=types.InputMediaPhoto(media=photo, caption=text, parse_mode="Markdown"),
                         reply_markup=kb
-                    )                except Exception as e:
-                    logging.error(f"Error editing message for user {user_id}: {e}")
+                    )
+                except Exception as e:
+                    logging.warning(f"Edit failed for user {user_id}, sending new: {e}")
                     msg = await bot.send_photo(
-                        chat_id=user_id, photo=photo, caption=text, parse_mode="Markdown", reply_markup=kb
+                        chat_id=user_id, photo=BufferedInputFile(img_bytes, filename="board.png"),
+                        caption=text, parse_mode="Markdown", reply_markup=kb
                     )
                     room.player_message_ids[user_id] = msg.message_id
                     db.set_player_message_id(room.code, user_id, msg.message_id)
             else:
                 msg = await bot.send_photo(
-                    chat_id=user_id, photo=photo, caption=text, parse_mode="Markdown", reply_markup=kb
+                    chat_id=user_id, photo=BufferedInputFile(img_bytes, filename="board.png"),
+                    caption=text, parse_mode="Markdown", reply_markup=kb
                 )
                 room.player_message_ids[user_id] = msg.message_id
                 db.set_player_message_id(room.code, user_id, msg.message_id)
@@ -1098,10 +1226,12 @@ async def send_board_to_all(room: Room, force_update: bool = False, timer_text: 
 async def cmd_start(message: Message):
     lang = db.get_user_language(message.from_user.id)
     db.save_user(message.from_user.id, message.from_user.username or message.from_user.full_name, lang)
-    
+
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🇬🇧 English", callback_data="lang_en"),
-         InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ru")],
+        [
+            InlineKeyboardButton(text="🇬🇧 English", callback_data="lang_en"),
+            InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ru"),
+        ],
     ])
     await message.answer(t('welcome', lang), reply_markup=kb, parse_mode="Markdown")
 
@@ -1110,7 +1240,7 @@ async def cmd_start(message: Message):
 async def cb_set_language(callback: CallbackQuery):
     lang = callback.data.split("_")[1]
     db.set_user_language(callback.from_user.id, lang)
-    
+
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=t('create_room', lang), callback_data="create_room")],
         [InlineKeyboardButton(text=t('join_by_code', lang), callback_data="join_room")],
@@ -1118,73 +1248,85 @@ async def cb_set_language(callback: CallbackQuery):
     ])
     await callback.message.edit_text(
         t('language_selected', lang),
-        reply_markup=kb, parse_mode="Markdown"
+        reply_markup=kb,
+        parse_mode="Markdown"
     )
 
 
 @router.callback_query(F.data == "browse_rooms")
 async def cb_browse_rooms(callback: CallbackQuery):
     lang = db.get_user_language(callback.from_user.id)
-    rooms = db.get_all_rooms()    if not rooms:
-        await callback.message.edit_text(t('no_rooms', lang), 
+    rooms = db.get_all_rooms()
+
+    if not rooms:
+        await callback.message.edit_text(
+            t('no_rooms', lang),
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=t('create_room', lang), callback_data="create_room")],
-                [InlineKeyboardButton(text=t('back', lang), callback_data="back_to_menu")]
-            ]))
+                [InlineKeyboardButton(text=t('back', lang), callback_data="back_to_menu")],
+            ])
+        )
         return
-    
+
     text = t('available_rooms', lang)
     kb_buttons = []
-    
+
     for room in rooms:
         lock = "🔒" if room['has_password'] else "🔓"
         text += f"{lock} `{room['code']}` - {room['current_players']}/{room['max_players']} {t('players', lang)}\n"
         if not room['has_password']:
-            kb_buttons.append([InlineKeyboardButton(
-                text=t('join', lang).format(room['code']), 
-                callback_data=f"quickjoin_{room['code']}")])
-    
+            kb_buttons.append([
+                InlineKeyboardButton(
+                    text=t('join', lang, room['code']),
+                    callback_data=f"quickjoin_{room['code']}"
+                )
+            ])
+
     kb_buttons.append([InlineKeyboardButton(text=t('refresh', lang), callback_data="browse_rooms")])
     kb_buttons.append([InlineKeyboardButton(text=t('back', lang), callback_data="back_to_menu")])
-    
-    await callback.message.edit_text(text, 
+
+    await callback.message.edit_text(
+        text,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons),
-        parse_mode="Markdown")
+        parse_mode="Markdown"
+    )
 
 
 @router.callback_query(F.data.startswith("quickjoin_"))
-async def cb_quick_join(callback: CallbackQuery, state: FSMContext):
+async def cb_quick_join(callback: CallbackQuery):
     lang = db.get_user_language(callback.from_user.id)
     code = callback.data.split("_")[1]
     room = db.get_room(code)
+
     if not room:
         await callback.answer(t('room_not_found', lang), show_alert=True)
         return
-    
+
     if room.password:
         await callback.answer(t('room_has_password', lang), show_alert=True)
         return
-    
+
     if len(room.players) >= room.max_players:
         await callback.answer(t('room_full', lang), show_alert=True)
         return
-    
+
     if callback.from_user.id in room.players:
         await callback.answer(t('already_in_room', lang), show_alert=True)
         return
-    
+
     color = get_available_color(room)
-    player = Player(user_id=callback.from_user.id, name=callback.from_user.full_name, color=color)    
+    player = Player(user_id=callback.from_user.id, name=callback.from_user.full_name, color=color)
+
     if not db.add_player(room.code, player):
         await callback.answer(t('room_full', lang), show_alert=True)
         return
-    
+
     room.players[player.user_id] = player
     room.player_ids.add(player.user_id)
     db.set_user_room(callback.from_user.id, room.code)
     db.update_room(room)
-    
-    await callback.answer(t('joined_room', lang).format(room.code))
+
+    await callback.answer(t('joined_room', lang, room.code))
     await show_lobby(callback.message, room)
 
 
@@ -1196,20 +1338,21 @@ async def cb_back_menu(callback: CallbackQuery):
         [InlineKeyboardButton(text=t('join_by_code', lang), callback_data="join_room")],
         [InlineKeyboardButton(text=t('browse_rooms', lang), callback_data="browse_rooms")],
     ])
-    await callback.message.edit_text(
-        t('welcome', lang),
-        reply_markup=kb, parse_mode="Markdown"
-    )
+    await callback.message.edit_text(t('welcome', lang), reply_markup=kb, parse_mode="Markdown")
 
 
 @router.callback_query(F.data == "create_room")
 async def cb_create_room(callback: CallbackQuery, state: FSMContext):
     lang = db.get_user_language(callback.from_user.id)
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"2 {t('players', lang)}", callback_data="max_2"),
-         InlineKeyboardButton(text=f"3 {t('players', lang)}", callback_data="max_3")],
-        [InlineKeyboardButton(text=f"4 {t('players', lang)}", callback_data="max_4"),
-         InlineKeyboardButton(text=f"6 {t('players', lang)}", callback_data="max_6")],
+        [
+            InlineKeyboardButton(text=f"2 {t('players', lang)}", callback_data="max_2"),
+            InlineKeyboardButton(text=f"3 {t('players', lang)}", callback_data="max_3"),
+        ],
+        [
+            InlineKeyboardButton(text=f"4 {t('players', lang)}", callback_data="max_4"),
+            InlineKeyboardButton(text=f"6 {t('players', lang)}", callback_data="max_6"),
+        ],
         [InlineKeyboardButton(text=f"8 {t('players', lang)}", callback_data="max_8")],
     ])
     await callback.message.edit_text(t('choose_max_players', lang), reply_markup=kb)
@@ -1221,10 +1364,12 @@ async def cb_max_players(callback: CallbackQuery, state: FSMContext):
     lang = db.get_user_language(callback.from_user.id)
     max_p = int(callback.data.split("_")[1])
     await state.update_data(max_players=max_p)
+
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=t('with_password', lang), callback_data="pass_yes")],
-        [InlineKeyboardButton(text=t('no_password', lang), callback_data="pass_no")],    ])
-    await callback.message.edit_text(t('password_question', lang).format(max_p), reply_markup=kb)
+        [InlineKeyboardButton(text=t('no_password', lang), callback_data="pass_no")],
+    ])
+    await callback.message.edit_text(t('password_question', lang, max_p), reply_markup=kb)
     await state.set_state(CreateRoom.wait_password)
 
 
@@ -1264,7 +1409,7 @@ async def cb_buyout_choice(callback: CallbackQuery, state: FSMContext):
     lang = db.get_user_language(callback.from_user.id)
     allow_buyout = callback.data == "buyout_yes"
     await state.update_data(allow_buyout=allow_buyout)
-    
+
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"⏰ {t('seconds_15', lang)}", callback_data="time_15")],
         [InlineKeyboardButton(text=f"⏰ {t('seconds_30', lang)}", callback_data="time_30")],
@@ -1273,6 +1418,7 @@ async def cb_buyout_choice(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(t('choose_turn_time', lang), reply_markup=kb)
     await state.set_state(CreateRoom.wait_turn_time)
 
+
 @router.callback_query(F.data.startswith("time_"), StateFilter(CreateRoom.wait_turn_time))
 async def cb_turn_time_choice(callback: CallbackQuery, state: FSMContext):
     turn_time = int(callback.data.split("_")[1])
@@ -1280,27 +1426,38 @@ async def cb_turn_time_choice(callback: CallbackQuery, state: FSMContext):
     await finalize_room(callback, data.get('password'), data['max_players'], data['allow_buyout'], turn_time, state)
 
 
-async def finalize_room(callback: CallbackQuery, password: Optional[str], max_players: int, allow_buyout: bool, turn_time: int, state: FSMContext):
+async def finalize_room(
+    callback: CallbackQuery,
+    password: Optional[str],
+    max_players: int,
+    allow_buyout: bool,
+    turn_time: int,
+    state: FSMContext
+):
     lang = db.get_user_language(callback.from_user.id)
     code = generate_code()
     room = Room(
-        code=code, creator_id=callback.from_user.id,
-        chat_id=callback.from_user.id, max_players=max_players,
-        password=password, language=lang, allow_buyout=allow_buyout,
-        turn_time=turn_time
+        code=code,
+        creator_id=callback.from_user.id,
+        chat_id=callback.from_user.id,
+        max_players=max_players,
+        password=password,
+        language=lang,
+        allow_buyout=allow_buyout,
+        turn_time=turn_time,
     )
     color = get_available_color(room)
     player = Player(user_id=callback.from_user.id, name=callback.from_user.full_name, color=color)
     room.players[player.user_id] = player
     room.player_ids.add(player.user_id)
-    
+
     if not db.create_room(room):
         await callback.answer(t('room_not_found', lang), show_alert=True)
         return
-    
+
     db.add_player(code, player)
     db.set_user_room(callback.from_user.id, code)
-    
+
     await state.clear()
     await show_lobby(callback.message, room)
 
@@ -1309,24 +1466,24 @@ async def show_lobby(message_or_cb, room: Room):
     players_text = "\n".join([
         f"{'🤖' if p.is_bot else '👤'} {p.name}" for p in room.players.values()
     ])
-    
+
     buyout_status = t('enabled', room.language) if room.allow_buyout else t('disabled', room.language)
-    
-    text = t('room_info', room.language).format(
-        room.code,
-        room.password or t('none', room.language),
-        len(room.players),
-        room.max_players,
-        buyout_status,
-        room.turn_time,
-        players_text
-    )
-        kb = InlineKeyboardMarkup(inline_keyboard=[
+
+    text = t('room_info', room.language,
+             room.code,
+             room.password or t('none', room.language),
+             len(room.players),
+             room.max_players,
+             buyout_status,
+             room.turn_time,
+             players_text)
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=t('add_bot', room.language), callback_data=f"addbot_{room.code}")],
         [InlineKeyboardButton(text=t('start_game', room.language), callback_data=f"start_{room.code}")],
         [InlineKeyboardButton(text=t('refresh', room.language), callback_data=f"lobby_{room.code}")],
     ])
-    
+
     if isinstance(message_or_cb, CallbackQuery):
         try:
             await message_or_cb.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
@@ -1356,26 +1513,27 @@ async def cb_add_bot(callback: CallbackQuery):
     if not room:
         await callback.answer(t('room_not_found', lang), show_alert=True)
         return
-    
+
     if len(room.players) >= room.max_players:
         await callback.answer(t('room_full', lang), show_alert=True)
         return
-    
+
     bot_names = ["Alpha-Bot", "Beta-Bot", "Gamma-Bot", "Delta-Bot", "Epsilon-Bot"]
     name = random.choice(bot_names)
     color = get_available_color(room)
     bot_user_id = -random.randint(1000, 9999)
-    
+
     player = Player(user_id=bot_user_id, name=f"🤖 {name}", color=color, is_bot=True)
-    
+
     if not db.add_player(code, player):
         await callback.answer(t('room_full', lang), show_alert=True)
-        return    
+        return
+
     room.players[bot_user_id] = player
     room.player_ids.add(bot_user_id)
     db.update_room(room)
-    
-    await callback.answer(t('bot_added', lang).format(name))
+
+    await callback.answer(t('bot_added', lang, name))
     await show_lobby(callback, room)
 
 
@@ -1387,30 +1545,29 @@ async def cb_start_game(callback: CallbackQuery):
     if not room:
         await callback.answer(t('room_not_found', lang), show_alert=True)
         return
-    
+
     if callback.from_user.id != room.creator_id:
         await callback.answer(t('only_creator_start', lang), show_alert=True)
         return
-    
+
     if len(room.players) < 2:
         await callback.answer(t('need_min_players', lang), show_alert=True)
         return
-    
+
     room.is_started = True
     room.can_roll = True
     db.update_room(room)
-    
-    # Редактируем сообщение лобби вместо отправки нового
+
     try:
         await callback.message.edit_text(t('game_starting', room.language))
-    except:
+    except Exception:
         pass
-    
+
+    room.add_event(t('game_started', room.language))
     cur = room.current_player()
     if cur:
-        room.add_event(t('player_turn', room.language).format(cur.name))
-    
-    room.add_event(t('game_started', room.language))
+        room.add_event(t('player_turn', room.language, cur.name))
+
     await send_board_to_all(room, force_update=True)
     await maybe_bot_turn(room)
 
@@ -1419,7 +1576,8 @@ async def cb_start_game(callback: CallbackQuery):
 @router.callback_query(F.data == "join_room")
 async def cb_join_menu(callback: CallbackQuery, state: FSMContext):
     lang = db.get_user_language(callback.from_user.id)
-    await callback.message.edit_text(t('enter_room_code', lang))    await state.set_state(JoinRoom.wait_code)
+    await callback.message.edit_text(t('enter_room_code', lang))
+    await state.set_state(JoinRoom.wait_code)
 
 
 @router.message(StateFilter(JoinRoom.wait_code))
@@ -1427,17 +1585,18 @@ async def msg_join_code(message: Message, state: FSMContext):
     lang = db.get_user_language(message.from_user.id)
     code = message.text.strip().upper()
     room = db.get_room(code)
+
     if not room:
         await message.answer(t('room_not_found', lang))
         await state.clear()
         return
-    
+
     if room.password:
         await state.update_data(join_code=code)
         await message.answer(t('room_has_password', lang))
         await state.set_state(JoinRoom.wait_password)
         return
-    
+
     await do_join(message, room, state)
 
 
@@ -1449,47 +1608,48 @@ async def msg_join_password(message: Message, state: FSMContext):
     if not code:
         await state.clear()
         return
-    
+
     room = db.get_room(code)
     if not room:
         await message.answer(t('room_not_found', lang))
         await state.clear()
         return
-    
+
     if message.text.strip() != room.password:
         await message.answer(t('wrong_password', lang))
         return
-    
+
     await do_join(message, room, state)
 
 
 async def do_join(message: Message, room: Room, state: FSMContext):
     lang = db.get_user_language(message.from_user.id)
-    
+
     if message.from_user.id in room.players:
         await message.answer(t('already_in_room', lang))
-        await state.clear()        return
-    
+        await state.clear()
+        return
+
     if len(room.players) >= room.max_players:
         await message.answer(t('room_full', lang))
         await state.clear()
         return
-    
+
     color = get_available_color(room)
     player = Player(user_id=message.from_user.id, name=message.from_user.full_name, color=color)
-    
+
     if not db.add_player(room.code, player):
         await message.answer(t('room_full', lang))
         await state.clear()
         return
-    
+
     room.players[player.user_id] = player
     room.player_ids.add(player.user_id)
     db.set_user_room(message.from_user.id, room.code)
     db.update_room(room)
-    
+
     await state.clear()
-    await message.answer(t('joined_room', lang).format(room.code), parse_mode="Markdown")
+    await message.answer(t('joined_room', lang, room.code), parse_mode="Markdown")
     await show_lobby(message, room)
 
 
@@ -1499,32 +1659,33 @@ async def cb_roll(callback: CallbackQuery):
     lang = db.get_user_language(callback.from_user.id)
     code = callback.data.split("_")[1]
     room = db.get_room(code)
+
     if not room or not room.is_started:
         await callback.answer(t('room_not_found', lang), show_alert=True)
         return
-    
+
     cur = room.current_player()
     if not cur or cur.user_id != callback.from_user.id:
         await callback.answer(t('not_your_turn', lang), show_alert=True)
         return
-    
+
     state = get_room_state(room.code)
     if not room.can_roll or state['in_cooldown']:
         await callback.answer(t('waiting', lang), show_alert=True)
         return
-    
+
     await callback.answer()
     await do_roll(room)
 
 
-async def do_roll(room: Room):    cur = room.current_player()
+async def do_roll(room: Room):
+    cur = room.current_player()
     if not cur:
         return
 
     if room.turn_timer_task and not room.turn_timer_task.done():
         room.turn_timer_task.cancel()
 
-    # Убираем возможность броска на время движения
     room.can_roll = False
     db.update_room(room)
     await send_board_to_all(room)
@@ -1536,9 +1697,9 @@ async def do_roll(room: Room):    cur = room.current_player()
             cur.jail_turns = 0
             cur.doubles_count = 0
             db.update_player(room.code, cur)
-            room.add_event(t('jail_doubles', room.language).format(cur.name, d1, d2))
+            room.add_event(t('jail_doubles', room.language, cur.name, d1, d2))
             await send_board_to_all(room)
-            
+
             await movement_delay(room.code, 5)
             await move_player(room, cur, d1 + d2, d1 + d2)
         else:
@@ -1550,24 +1711,26 @@ async def do_roll(room: Room):    cur = room.current_player()
                 cur.jail_turns = 0
                 cur.doubles_count = 0
                 db.update_player(room.code, cur)
-                room.add_event(t('jail_pay_forced', room.language).format(cur.name))
+                room.add_event(t('jail_pay_forced', room.language, cur.name))
                 await send_board_to_all(room)
-                
+
                 await movement_delay(room.code, 5)
                 await move_player(room, cur, d1 + d2, d1 + d2)
             else:
-                room.add_event(t('jail_no_doubles', room.language).format(cur.name, d1, d2, 3 - cur.jail_turns))
-                
+                room.add_event(
+                    t('jail_no_doubles', room.language, cur.name, d1, d2, 3 - cur.jail_turns)
+                )
                 await turn_end_delay(room.code, 5)
-                
+
                 room.next_turn()
                 cur.doubles_count = 0
                 db.update_player(room.code, cur)
                 db.update_room(room)
-                
+
                 next_player = room.current_player()
-                if next_player:                    room.add_event(t('player_turn', room.language).format(next_player.name))
-                
+                if next_player:
+                    room.add_event(t('player_turn', room.language, next_player.name))
+
                 room.can_roll = True
                 db.update_room(room)
                 await send_board_to_all(room)
@@ -1577,58 +1740,59 @@ async def do_roll(room: Room):    cur = room.current_player()
     d1, d2 = random.randint(1, 6), random.randint(1, 6)
     total = d1 + d2
     is_double = d1 == d2
-    
-    room.add_event(t('rolled', room.language).format(cur.name, d1, d2, total))
-    
+
+    room.add_event(t('rolled', room.language, cur.name, d1, d2, total))
+
     if is_double:
         cur.doubles_count += 1
         if cur.doubles_count >= 3:
-            room.add_event(t('third_double', room.language).format(cur.name))
+            room.add_event(t('third_double', room.language, cur.name))
             cur.position = 10
             cur.in_jail = True
             cur.jail_turns = 0
             cur.doubles_count = 0
             db.update_player(room.code, cur)
             await send_board_to_all(room)
-            
+
             await turn_end_delay(room.code, 5)
-            
+
             room.next_turn()
             room.can_roll = True
             db.update_room(room)
-            
+
             next_player = room.current_player()
             if next_player:
-                room.add_event(t('player_turn', room.language).format(next_player.name))
-            
+                room.add_event(t('player_turn', room.language, next_player.name))
+
             await send_board_to_all(room)
             await maybe_bot_turn(room)
             return
         else:
-            room.add_event(t('doubles', room.language).format(cur.name))
-    
+            room.add_event(t('doubles', room.language, cur.name))
+
     await send_board_to_all(room)
-    
+
     await movement_delay(room.code, 5)
     await move_player(room, cur, total, total, is_double)
 
 
 async def move_player(room: Room, player: Player, steps: int, dice_sum: int, is_double: bool = False):
     state = get_room_state(room.code)
-    state['is_moving'] = True    
+    state['is_moving'] = True
+
     old_pos = player.position
     new_pos = (player.position + steps) % 40
 
     if new_pos < old_pos and new_pos != 0:
         player.receive(200)
         db.update_player(room.code, player)
-        room.add_event(t('passed_start', room.language).format(player.name))
+        room.add_event(t('passed_start', room.language, player.name))
 
     player.position = new_pos
     db.update_player(room.code, player)
-    
+
     state['is_moving'] = False
-    
+
     await process_cell(room, player, dice_sum, is_double)
 
 
@@ -1637,9 +1801,8 @@ async def process_cell(room: Room, player: Player, dice_sum: int, is_double: boo
     ctype = cell["type"]
 
     if ctype == "go":
-        room.add_event(t('at_start', room.language).format(player.name))
+        room.add_event(t('at_start', room.language, player.name))
         await send_board_to_all(room)
-        
         if is_double:
             room.can_roll = True
             db.update_room(room)
@@ -1648,37 +1811,39 @@ async def process_cell(room: Room, player: Player, dice_sum: int, is_double: boo
         else:
             await turn_end_delay(room.code, 5)
             await end_turn(room)
-            
+
     elif ctype == "property":
         await handle_property(room, player, cell, dice_sum, is_double)
+
     elif ctype == "chance":
         card = random.choice(room.chance_deck)
         await apply_card(room, player, card, "🎲 CHANCE", is_double)
+
     elif ctype == "risk":
         card = random.choice(room.risk_deck)
         await apply_card(room, player, card, "⚠️ RISK", is_double)
+
     elif ctype == "chest":
         amount = random.choice([50, 100, 150, 200])
         player.receive(amount)
         db.update_player(room.code, player)
-        room.add_event(t('chest_reward', room.language).format(player.name, amount))
+        room.add_event(t('chest_reward', room.language, player.name, amount))
         await send_board_to_all(room)
-        
-        if is_double:            room.can_roll = True
+        if is_double:
+            room.can_roll = True
             db.update_room(room)
             await send_board_to_all(room)
             await maybe_bot_turn(room)
         else:
             await turn_end_delay(room.code, 5)
             await end_turn(room)
-            
+
     elif ctype == "tax":
         player.pay(cell["amount"])
         db.update_player(room.code, player)
-        room.add_event(t('tax_paid', room.language).format(player.name, cell["amount"]))
+        room.add_event(t('tax_paid', room.language, player.name, cell["amount"]))
         await check_player_debt(room, player)
         await send_board_to_all(room)
-        
         if is_double:
             room.can_roll = True
             db.update_room(room)
@@ -1687,11 +1852,10 @@ async def process_cell(room: Room, player: Player, dice_sum: int, is_double: boo
         else:
             await turn_end_delay(room.code, 5)
             await end_turn(room)
-            
+
     elif ctype == "jail":
-        room.add_event(t('visiting_jail', room.language).format(player.name))
+        room.add_event(t('visiting_jail', room.language, player.name))
         await send_board_to_all(room)
-        
         if is_double:
             room.can_roll = True
             db.update_room(room)
@@ -1700,11 +1864,10 @@ async def process_cell(room: Room, player: Player, dice_sum: int, is_double: boo
         else:
             await turn_end_delay(room.code, 5)
             await end_turn(room)
-            
+
     elif ctype == "free_parking":
-        room.add_event(t('at_parking', room.language).format(player.name))
+        room.add_event(t('at_parking', room.language, player.name))
         await send_board_to_all(room)
-        
         if is_double:
             room.can_roll = True
             db.update_room(room)
@@ -1713,27 +1876,28 @@ async def process_cell(room: Room, player: Player, dice_sum: int, is_double: boo
         else:
             await turn_end_delay(room.code, 5)
             await end_turn(room)
-                elif ctype == "go_to_jail":
+
+    elif ctype == "go_to_jail":
         player.position = 10
         player.in_jail = True
         player.jail_turns = 0
         player.doubles_count = 0
         db.update_player(room.code, player)
-        room.add_event(t('go_to_jail', room.language).format(player.name))
+        room.add_event(t('go_to_jail', room.language, player.name))
         await send_board_to_all(room)
-        
         await turn_end_delay(room.code, 5)
         await end_turn(room)
 
 
-async def handle_property(room: Room, player: Player, cell, dice_sum: int, is_double: bool = False):
+async def handle_property(room: Room, player: Player, cell: dict, dice_sum: int, is_double: bool = False):
     idx = player.position
+
     if idx in room.ownership:
         owner_id, houses = room.ownership[idx]
+
         if owner_id == player.user_id:
-            room.add_event(t('own_property', room.language).format(player.name, cell['name']))
+            room.add_event(t('own_property', room.language, player.name, cell['name']))
             await send_board_to_all(room)
-            
             if is_double:
                 room.can_roll = True
                 db.update_room(room)
@@ -1744,8 +1908,7 @@ async def handle_property(room: Room, player: Player, cell, dice_sum: int, is_do
                 await end_turn(room)
         else:
             owner = room.players[owner_id]
-            
-            # Расчет ренты по правилам
+
             if cell.get("group") == "station":
                 station_count = count_owned_stations(room, owner_id)
                 rent = calculate_rent(cell, houses, station_count, dice_sum)
@@ -1754,15 +1917,16 @@ async def handle_property(room: Room, player: Player, cell, dice_sum: int, is_do
                 rent = calculate_rent(cell, houses, utility_count, dice_sum)
             else:
                 rent = calculate_rent(cell, houses, 1, dice_sum)
-            
+
             player.pay(rent)
             owner.receive(rent)
             db.update_player(room.code, player)
             db.update_player(room.code, owner)
-            room.add_event(t('rent_paid', room.language).format(player.name, rent, owner.name, cell['name']))
-            
+            room.add_event(t('rent_paid', room.language, player.name, rent, owner.name, cell['name']))
+
             await check_player_debt(room, player)
-                        if room.allow_buyout and cell.get("group") not in ["station", "utility"]:
+
+            if room.allow_buyout and cell.get("group") not in ["station", "utility"]:
                 room.awaiting_buy = idx
                 room.awaiting_buyout = True
                 db.update_room(room)
@@ -1770,7 +1934,6 @@ async def handle_property(room: Room, player: Player, cell, dice_sum: int, is_do
                 room.turn_timer_task = asyncio.create_task(turn_timeout(room.code))
             else:
                 await send_board_to_all(room)
-                
                 if is_double:
                     room.can_roll = True
                     db.update_room(room)
@@ -1784,19 +1947,21 @@ async def handle_property(room: Room, player: Player, cell, dice_sum: int, is_do
             room.awaiting_buy = idx
             room.awaiting_buyout = False
             db.update_room(room)
-            room.add_event(t('free_property', room.language).format(cell['name'], cell['price'], cell['rent'][0]))
+            room.add_event(
+                t('free_property', room.language, cell['name'], cell['price'], cell['rent'][0])
+            )
             await send_board_to_all(room)
-            
-            # Запускаем таймер только для живых игроков
+
             if not player.is_bot:
                 room.turn_timer_task = asyncio.create_task(turn_timeout(room.code))
             else:
-                # Бот принимает решение автоматически через 1.5 секунды
                 await asyncio.sleep(1.5)
-                
-                # Проверяем, что состояние не изменилось
                 room = db.get_room(room.code)
                 if room and room.awaiting_buy == idx:
+                    # Перечитываем игрока из комнаты после await
+                    player = room.players.get(player.user_id)
+                    if not player:
+                        return
                     player.pay(cell["price"])
                     room.ownership[idx] = (player.user_id, 0)
                     db.set_ownership(room.code, idx, player.user_id, 0)
@@ -1804,18 +1969,20 @@ async def handle_property(room: Room, player: Player, cell, dice_sum: int, is_do
                     room.awaiting_buyout = False
                     db.update_room(room)
                     db.update_player(room.code, player)
-                    room.add_event(t('property_bought', room.language).format(player.name, cell['name'], cell['price']))
-                    
-                    # Проверка победы
+                    room.add_event(
+                        t('property_bought', room.language, player.name, cell['name'], cell['price'])
+                    )
+
                     if check_all_stations_owned(room, player.user_id):
                         await end_game(room, player, 'stations')
                         return
-                    
-                    if check_three_complete_streets(room, player.user_id):                        await end_game(room, player, 'streets')
+
+                    if check_three_complete_streets(room, player.user_id):
+                        await end_game(room, player, 'streets')
                         return
-                    
+
                     await send_board_to_all(room)
-                    
+
                     if is_double:
                         room.can_roll = True
                         db.update_room(room)
@@ -1825,9 +1992,8 @@ async def handle_property(room: Room, player: Player, cell, dice_sum: int, is_do
                         await turn_end_delay(room.code, 5)
                         await end_turn(room)
         else:
-            room.add_event(t('not_enough_money', room.language).format(player.name))
+            room.add_event(t('not_enough_money', room.language, player.name))
             await send_board_to_all(room)
-            
             if is_double:
                 room.can_roll = True
                 db.update_room(room)
@@ -1838,10 +2004,10 @@ async def handle_property(room: Room, player: Player, cell, dice_sum: int, is_do
                 await end_turn(room)
 
 
-async def apply_card(room: Room, player: Player, card, title: str, is_double: bool = False):
+async def apply_card(room: Room, player: Player, card: dict, title: str, is_double: bool = False):
     card_text = card.get('text_ru' if room.language == 'ru' else 'text', card['text'])
     text = f"{title}: {card_text}"
-    
+
     effect = card["effect"]
     if isinstance(effect, int):
         if effect > 0:
@@ -1860,7 +2026,8 @@ async def apply_card(room: Room, player: Player, card, title: str, is_double: bo
     room.add_event(text)
     await check_player_debt(room, player)
     await send_board_to_all(room)
-        if is_double:
+
+    if is_double:
         room.can_roll = True
         db.update_room(room)
         await send_board_to_all(room)
@@ -1871,27 +2038,26 @@ async def apply_card(room: Room, player: Player, card, title: str, is_double: bo
 
 
 async def check_player_debt(room: Room, player: Player):
-    """Проверка долга игрока"""
     if player.money < 0:
         properties = get_player_properties(room, player.user_id)
         total_sell_value = sum(calculate_sell_price(cell, houses) for _, cell, houses in properties)
-        
+
         if total_sell_value + player.money < 0:
             player.is_active = False
             db.update_player(room.code, player)
-            room.add_event(t('player_eliminated', room.language).format(player.name))
-            
+            room.add_event(t('player_eliminated', room.language, player.name))
+
             for prop_idx, _, _ in properties:
-                del room.ownership[prop_idx]
+                if prop_idx in room.ownership:
+                    del room.ownership[prop_idx]
                 db.remove_ownership(room.code, prop_idx)
-            
+
             await check_game_end(room)
         else:
-            room.add_event(t('debt_warning', room.language).format(player.name))
+            room.add_event(t('debt_warning', room.language, player.name))
 
 
 async def check_game_end(room: Room):
-    """Проверка окончания игры"""
     active = room.active_players()
     if len(active) == 1:
         winner = active[0]
@@ -1899,47 +2065,50 @@ async def check_game_end(room: Room):
 
 
 async def end_game(room: Room, winner: Player, reason: str):
-    """Завершение игры"""
     if reason == 'stations':
-        room.add_event(t('all_stations_owned', room.language).format(winner.name))
+        room.add_event(t('all_stations_owned', room.language, winner.name))
     elif reason == 'streets':
-        room.add_event(t('three_streets_owned', room.language).format(winner.name))
-    
-    room.add_event(t('player_won', room.language).format(winner.name))
+        room.add_event(t('three_streets_owned', room.language, winner.name))
+
+    room.add_event(t('player_won', room.language, winner.name))
     room.add_event(t('game_over', room.language))
     room.is_started = False
     db.update_room(room)
-        # Очищаем временное состояние комнаты из кэша
+
     clear_room_state(room.code)
-    
     await send_board_to_all(room)
 
 
 async def end_turn(room: Room):
     if room.turn_timer_task and not room.turn_timer_task.done():
         room.turn_timer_task.cancel()
-    
+
     cur = room.current_player()
     if cur:
         cur.doubles_count = 0
         db.update_player(room.code, cur)
-    
+
     room.awaiting_buy = None
     room.awaiting_buyout = False
     room.next_turn()
     room.can_roll = True
     db.update_room(room)
-    
+
     cur = room.current_player()
     if cur:
-        room.add_event(t('player_turn', room.language).format(cur.name))
-    
+        room.add_event(t('player_turn', room.language, cur.name))
+
     await send_board_to_all(room)
     asyncio.create_task(maybe_bot_turn(room))
 
 
 async def maybe_bot_turn(room: Room):
     """Автоматическая игра ботов"""
+    # Перечитываем актуальное состояние из БД
+    room = db.get_room(room.code)
+    if not room or not room.is_started:
+        return
+
     for _ in range(len(room.players)):
         cur = room.current_player()
         if not cur:
@@ -1948,9 +2117,12 @@ async def maybe_bot_turn(room: Room):
             room.next_turn()
             db.update_room(room)
             continue
-        if cur.is_bot and room.is_started and room.can_roll and not get_room_state(room.code)['in_cooldown']:
+        if cur.is_bot and room.can_roll and not get_room_state(room.code)['in_cooldown']:
             await asyncio.sleep(2)
-            await do_roll(room)
+            # Перечитываем ещё раз после sleep, состояние могло измениться
+            room = db.get_room(room.code)
+            if room and room.is_started and room.can_roll:
+                await do_roll(room)
             return
         break
 
@@ -1958,56 +2130,59 @@ async def maybe_bot_turn(room: Room):
 @router.callback_query(F.data.startswith("buy_"))
 async def cb_buy(callback: CallbackQuery):
     lang = db.get_user_language(callback.from_user.id)
-    code = callback.data.split("_")[1]    room = db.get_room(code)
+    code = callback.data.split("_")[1]
+    room = db.get_room(code)
+
     if not room:
         await callback.answer(t('room_not_found', lang), show_alert=True)
         return
-    
+
     cur = room.current_player()
     if not cur or cur.user_id != callback.from_user.id:
         await callback.answer(t('not_your_turn', lang), show_alert=True)
         return
-    
+
     if room.awaiting_buy is None or room.awaiting_buyout:
         await callback.answer(t('nothing_to_buy', lang), show_alert=True)
         return
-    
+
     idx = room.awaiting_buy
     cell = BOARD[idx]
+
     if cur.money < cell["price"]:
         await callback.answer(t('not_enough_ruzcoin', lang), show_alert=True)
         return
-    
+
     cur.pay(cell["price"])
     room.ownership[idx] = (cur.user_id, 0)
     db.set_ownership(room.code, idx, cur.user_id, 0)
     room.awaiting_buy = None
     room.awaiting_buyout = False
-    
+
     if room.turn_timer_task and not room.turn_timer_task.done():
         room.turn_timer_task.cancel()
-    
+
     db.update_room(room)
     db.update_player(room.code, cur)
-    
+
     await callback.answer()
-    room.add_event(t('property_bought', room.language).format(cur.name, cell['name'], cell['price']))
-    
-    # Проверка победы
+    room.add_event(t('property_bought', room.language, cur.name, cell['name'], cell['price']))
+
     if check_all_stations_owned(room, cur.user_id):
         await end_game(room, cur, 'stations')
         return
-    
+
     if check_three_complete_streets(room, cur.user_id):
         await end_game(room, cur, 'streets')
         return
-    
+
     await send_board_to_all(room)
-    
+
     if cur.doubles_count > 0:
         room.can_roll = True
         db.update_room(room)
-        await send_board_to_all(room)        await maybe_bot_turn(room)
+        await send_board_to_all(room)
+        await maybe_bot_turn(room)
     else:
         await turn_end_delay(room.code, 5)
         await end_turn(room)
@@ -2018,33 +2193,34 @@ async def cb_buyout(callback: CallbackQuery):
     lang = db.get_user_language(callback.from_user.id)
     code = callback.data.split("_")[1]
     room = db.get_room(code)
+
     if not room:
         await callback.answer(t('room_not_found', lang), show_alert=True)
         return
-    
+
     cur = room.current_player()
     if not cur or cur.user_id != callback.from_user.id:
         await callback.answer(t('not_your_turn', lang), show_alert=True)
         return
-    
+
     if room.awaiting_buy is None or not room.awaiting_buyout:
         await callback.answer(t('nothing_to_buy', lang), show_alert=True)
         return
-    
+
     idx = room.awaiting_buy
     cell = BOARD[idx]
-    
+
     if idx not in room.ownership:
         await callback.answer(t('nothing_to_buy', lang), show_alert=True)
         return
-    
+
     owner_id, houses = room.ownership[idx]
     buyout_price = calculate_buyout_price(cell, houses)
-    
+
     if cur.money < buyout_price:
         await callback.answer(t('not_enough_ruzcoin', lang), show_alert=True)
         return
-    
+
     owner = room.players[owner_id]
     cur.pay(buyout_price)
     owner.receive(buyout_price)
@@ -2052,23 +2228,25 @@ async def cb_buyout(callback: CallbackQuery):
     db.set_ownership(room.code, idx, cur.user_id, houses)
     room.awaiting_buy = None
     room.awaiting_buyout = False
-    
+
     if room.turn_timer_task and not room.turn_timer_task.done():
         room.turn_timer_task.cancel()
-    
-    db.update_room(room)    db.update_player(room.code, cur)
+
+    db.update_room(room)
+    db.update_player(room.code, cur)
     db.update_player(room.code, owner)
-    
+
     await callback.answer()
-    room.add_event(t('property_buyout', room.language).format(cur.name, cell['name'], owner.name, buyout_price))
-    
-    # Проверка победы
+    room.add_event(
+        t('property_buyout', room.language, cur.name, cell['name'], owner.name, buyout_price)
+    )
+
     if check_three_complete_streets(room, cur.user_id):
         await end_game(room, cur, 'streets')
         return
-    
+
     await send_board_to_all(room)
-    
+
     if cur.doubles_count > 0:
         room.can_roll = True
         db.update_room(room)
@@ -2085,39 +2263,39 @@ async def cb_sell(callback: CallbackQuery):
     parts = callback.data.split("_")
     code = parts[1]
     prop_idx = int(parts[2])
-    
+
     room = db.get_room(code)
     if not room:
         await callback.answer(t('room_not_found', lang), show_alert=True)
         return
-    
+
     cur = room.current_player()
     if not cur or cur.user_id != callback.from_user.id:
         await callback.answer(t('not_your_turn', lang), show_alert=True)
         return
-    
+
     if prop_idx not in room.ownership:
         await callback.answer("Property not found", show_alert=True)
         return
-    
+
     owner_id, houses = room.ownership[prop_idx]
     if owner_id != cur.user_id:
         await callback.answer("Not your property", show_alert=True)
         return
-    
-    cell = BOARD[prop_idx]    sell_price = calculate_sell_price(cell, houses)
-    
+
+    cell = BOARD[prop_idx]
+    sell_price = calculate_sell_price(cell, houses)
+
     cur.receive(sell_price)
     del room.ownership[prop_idx]
     db.remove_ownership(room.code, prop_idx)
     db.update_player(room.code, cur)
-    
+
     await callback.answer()
-    room.add_event(t('property_sold', room.language).format(cur.name, cell['name'], sell_price))
-    
+    room.add_event(t('property_sold', room.language, cur.name, cell['name'], sell_price))
+
     if cur.money >= 0:
         await send_board_to_all(room)
-        
         if cur.doubles_count > 0:
             room.can_roll = True
             db.update_room(room)
@@ -2133,28 +2311,30 @@ async def cb_sell(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("skipbuy_"))
 async def cb_skip_buy(callback: CallbackQuery):
+    lang = db.get_user_language(callback.from_user.id)
     code = callback.data.split("_")[1]
     room = db.get_room(code)
     if not room:
         return
-    
+
     cur = room.current_player()
     if not cur or cur.user_id != callback.from_user.id:
         await callback.answer(t('not_your_turn', room.language), show_alert=True)
         return
-    
+
     room.awaiting_buy = None
     room.awaiting_buyout = False
-    
+
     if room.turn_timer_task and not room.turn_timer_task.done():
         room.turn_timer_task.cancel()
-    
+
     db.update_room(room)
     await callback.answer()
-    room.add_event(t('purchase_declined', room.language).format(callback.from_user.full_name))
-    
+    room.add_event(t('purchase_declined', room.language, callback.from_user.full_name))
+
     if cur.doubles_count > 0:
-        room.can_roll = True        db.update_room(room)
+        room.can_roll = True
+        db.update_room(room)
         await send_board_to_all(room)
         await maybe_bot_turn(room)
     else:
@@ -2169,24 +2349,24 @@ async def cb_pay_jail(callback: CallbackQuery):
     room = db.get_room(code)
     if not room:
         return
-    
+
     cur = room.current_player()
     if not cur or cur.user_id != callback.from_user.id:
         await callback.answer(t('not_your_turn', lang), show_alert=True)
         return
-    
+
     if cur.money < 150:
         await callback.answer(t('not_enough_ruzcoin', lang), show_alert=True)
         return
-    
+
     cur.pay(150)
     cur.in_jail = False
     cur.jail_turns = 0
     cur.doubles_count = 0
     db.update_player(room.code, cur)
-    
+
     await callback.answer()
-    room.add_event(t('jail_paid_out', room.language).format(cur.name))
+    room.add_event(t('jail_paid_out', room.language, cur.name))
     room.can_roll = True
     db.update_room(room)
     await send_board_to_all(room)
