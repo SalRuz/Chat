@@ -121,9 +121,9 @@ TRANSLATIONS = {
         'property_sold': "💰 {} sold {} for ${}.",
         'all_stations_owned': "🚉 {} owns all stations and wins!",
         'three_streets_owned': "🏘️ {} owns 3 complete streets and wins!",
-        'moving_countdown': "⏱️ Moving in {} sec...",
-        'turn_end_countdown': "⏱️ Turn ends in {} sec...",
-        'decision_time': "⏱️ Decision time: {} sec",
+        'moving_countdown': "⏱️ Moving in {}...",
+        'turn_end_countdown': "⏱️ Turn ends in {}...",
+        'decision_time': "⏱️ Waiting for {} decision {}...",
         'waiting': "⏳ Please wait...",
     },
     'ru': {
@@ -208,9 +208,9 @@ TRANSLATIONS = {
         'property_sold': "💰 {} продал {} за ${}.",
         'all_stations_owned': "🚉 {} владеет всеми станциями и побеждает!",
         'three_streets_owned': "🏘️ {} владеет 3 полными улицами и побеждает!",
-        'moving_countdown': "⏱️ Перемещение через {} сек...",
-        'turn_end_countdown': "⏱️ Ход завершится через {} сек...",
-        'decision_time': "⏱️ Время на решение: {} сек",
+        'moving_countdown': "⏱️ Перемещение через {}...",
+        'turn_end_countdown': "⏱️ Ход завершится через {}...",
+        'decision_time': "⏱️ Ожидание хода игрока {} {}...",
         'waiting': "⏳ Пожалуйста, подождите...",
     }
 }
@@ -464,7 +464,7 @@ class Room:
     countdown_seconds: int = 0
     is_moving: bool = False
     can_roll: bool = True
-    in_cooldown: bool = False  # Новое: флаг кулдауна
+    in_cooldown: bool = False
 
     def active_players(self) -> List[Player]:
         return [p for p in self.players.values() if p.is_active]
@@ -911,8 +911,11 @@ async def turn_timeout(room_code: str):
         if not room or not room.is_started or room.awaiting_buy is None:
             return
         
-        # Динамическое обновление времени
-        await send_board_to_all(room, timer_seconds=remaining)
+        # Динамическое обновление времени с именем игрока
+        cur = room.current_player()
+        if cur:
+            timer_text = t('decision_time', room.language).format(cur.name, remaining)
+            await send_board_to_all(room, timer_text=timer_text)
     
     # Время вышло
     room = db.get_room(room_code)
@@ -958,7 +961,8 @@ async def movement_delay(room_code: str, seconds: int):
         if not room:
             return
         
-        await send_board_to_all(room, timer_seconds=remaining, timer_text=t('moving_countdown', room.language).format(remaining))
+        timer_text = t('moving_countdown', room.language).format(remaining)
+        await send_board_to_all(room, timer_text=timer_text)
         await asyncio.sleep(1)
     
     room = db.get_room(room_code)
@@ -981,7 +985,8 @@ async def turn_end_delay(room_code: str, seconds: int):
         if not room:
             return
         
-        await send_board_to_all(room, timer_seconds=remaining, timer_text=t('turn_end_countdown', room.language).format(remaining))
+        timer_text = t('turn_end_countdown', room.language).format(remaining)
+        await send_board_to_all(room, timer_text=timer_text)
         await asyncio.sleep(1)
     
     room = db.get_room(room_code)
@@ -991,28 +996,25 @@ async def turn_end_delay(room_code: str, seconds: int):
 
 
 # ================== ОТПРАВКА ПОЛЯ ==================
-async def send_board_to_all(room: Room, force_update: bool = False, timer_seconds: Optional[int] = None, timer_text: Optional[str] = None):
+async def send_board_to_all(room: Room, force_update: bool = False, timer_text: Optional[str] = None):
     """Редактирует одно сообщение для каждого игрока"""
     img_bytes = render_board(room)
     photo = BufferedInputFile(img_bytes, filename="board.png")
 
     cur = room.current_player()
     
-    # События всегда отображаются
-    events_text = ""
+    # Строим текст сообщения
+    text = ""
+    
+    # Сначала таймер если есть (ВСЕГДА ВВЕРХУ)
+    if timer_text:
+        text += f"{timer_text}\n"
+    
+    # Потом события (ВСЕГДА ПОКАЗЫВАЕМ)
     if room.event_log:
-        events_text = "\n".join(room.event_log[-3:]) + "\n\n"
+        text += "\n".join(room.event_log[-3:]) + "\n"
     
-    # Добавляем таймер если есть
-    if timer_seconds is not None:
-        if timer_text:
-            events_text += f"{timer_text}\n\n"
-        elif room.awaiting_buy is not None:
-            # Таймер решения
-            events_text += f"{t('decision_time', room.language).format(timer_seconds)}\n\n"
-    
-    text = events_text
-    text += f"🎲 **RUZOPOLY** | Room: `{room.code}`\n"
+    text += f"\n🎲 **RUZOPOLY** | Room: `{room.code}`\n"
     if cur:
         text += f"👤 Turn: **{cur.name}** (${cur.money})\n"
         text += f"📍 Position: {BOARD[cur.position]['name']}\n"
@@ -1031,7 +1033,7 @@ async def send_board_to_all(room: Room, force_update: bool = False, timer_second
         kb_buttons = []
         
         # Кнопки отображаются только если:
-        # 1. Нет кулдауна
+        # 1. Нет кулдауна (во время движения и завершения хода кнопки скрыты)
         # 2. Это текущий игрок
         # 3. Игра началась
         # 4. Не в процессе движения
