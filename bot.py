@@ -2184,6 +2184,10 @@ async def do_roll(room):
     cur = room.players.get(cur.user_id)
     if not cur:
         return
+    cur = room.players.get(cur.user_id)
+    if not cur:
+        return
+    logging.info(f"[{code}] do_roll: moving {cur.name} by {total}")
     await move(room, cur, total, total, dbl)
     
 async def move(room, player, steps, dice, dbl=False):
