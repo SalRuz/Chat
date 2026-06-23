@@ -1313,7 +1313,8 @@ async def send_board(room, force=False, timer_text=None):
 
         kb_buttons = []
         if (cur and room.is_started and uid == cur.user_id
-                and not st['is_moving'] and not st['in_cooldown']):
+                and not st['is_moving']
+                and not st['in_cooldown']):
 
             if can_roll_now and room.awaiting_buy is None:
                 kb_buttons.append([InlineKeyboardButton(
