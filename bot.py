@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple, Set
 
 from aiogram import Bot, Dispatcher, F, Router, types
-from aiogram.filters import CommandStart, StateFilter
+from aiogram.filters import CommandStart, Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -39,6 +39,14 @@ LAST_EDIT: Dict[int, float] = {}
 MIN_EDIT_INTERVAL = 2.0
 
 ROOM_CAN_ROLL: Dict[str, bool] = {}
+
+# Виды пешек
+PAWN_SHAPES = {
+    'circle': '●',
+    'square': '■',
+    'triangle': '▲',
+    'star': '★'
+}
 
 TRANSLATIONS = {
     'en': {
@@ -81,6 +89,7 @@ TRANSLATIONS = {
         'buyout_property': "💎 Buyout {} (${})",
         'sell_property': "💰 Sell {} (${})",
         'build_house': "🏠 Build on {} (${})",
+        'build_hotel': "🏨 Hotel on {} (${})",
         'skip': "❌ Skip",
         'pay_jail': "💰 Pay $150 to get out",
         'not_your_turn': "Not your turn!",
@@ -151,6 +160,16 @@ TRANSLATIONS = {
         'auto_skip': "⏰ Auto-skip for {}",
         'bot_trade_accepted': "🤖 {} accepted the trade offer!",
         'bot_trade_rejected': "🤖 {} declined the trade offer.",
+        'choose_pawn': "🎭 Choose your pawn shape:",
+        'pawn_circle': "● Circle",
+        'pawn_square': "■ Square",
+        'pawn_triangle': "▲ Triangle",
+        'pawn_star': "★ Star",
+        'pawn_chosen': "You chose {} pawn!",
+        'dice_order': "🎲 Rolling dice to determine turn order...",
+        'dice_order_result': "🎲 {} rolled {}! ",
+        'turn_order': "📋 Turn order determined:\n{}",
+        'initiative_roll': "🎲 {} rolled {} ({}+{})",
     },
     'ru': {
         'welcome': "🎩 Добро пожаловать в **RUZOPOLY**!\n\nИгра в стиле Монополии с **Ruzcoin** 💰\n\nВыберите язык:",
@@ -192,6 +211,7 @@ TRANSLATIONS = {
         'buyout_property': "💎 Выкупить {} (${})",
         'sell_property': "💰 Продать {} (${})",
         'build_house': "🏠 Строить на {} (${})",
+        'build_hotel': "🏨 Отель на {} (${})",
         'skip': "❌ Пропустить",
         'pay_jail': "💰 Заплатить $150 за выход",
         'not_your_turn': "Сейчас не ваш ход!",
@@ -262,6 +282,16 @@ TRANSLATIONS = {
         'auto_skip': "⏰ Авто-пропуск для {}",
         'bot_trade_accepted': "🤖 {} принял предложение обмена!",
         'bot_trade_rejected': "🤖 {} отклонил предложение обмена.",
+        'choose_pawn': "🎭 Выберите вид своей пешки:",
+        'pawn_circle': "● Круг",
+        'pawn_square': "■ Квадрат",
+        'pawn_triangle': "▲ Треугольник",
+        'pawn_star': "★ Звезда",
+        'pawn_chosen': "Вы выбрали пешку {}!",
+        'dice_order': "🎲 Бросаем кубики для определения очерёдности...",
+        'dice_order_result': "🎲 {} выбросил {}! ",
+        'turn_order': "📋 Очерёдность определена:\n{}",
+        'initiative_roll': "🎲 {} выбросил {} ({}+{})",
     }
 }
 
@@ -306,11 +336,16 @@ def init_db():
         "money INTEGER DEFAULT 1500, position INTEGER DEFAULT 0, color TEXT, "
         "is_bot BOOLEAN DEFAULT 0, in_jail BOOLEAN DEFAULT 0, jail_turns INTEGER DEFAULT 0, "
         "is_active BOOLEAN DEFAULT 1, doubles_count INTEGER DEFAULT 0, "
+        "pawn_shape TEXT DEFAULT 'circle', turn_order INTEGER DEFAULT 0, "
         "PRIMARY KEY(room_code, user_id))")
     c.execute("PRAGMA table_info(players)")
     pcols = [x[1] for x in c.fetchall()]
     if 'doubles_count' not in pcols:
         c.execute("ALTER TABLE players ADD COLUMN doubles_count INTEGER DEFAULT 0")
+    if 'pawn_shape' not in pcols:
+        c.execute("ALTER TABLE players ADD COLUMN pawn_shape TEXT DEFAULT 'circle'")
+    if 'turn_order' not in pcols:
+        c.execute("ALTER TABLE players ADD COLUMN turn_order INTEGER DEFAULT 0")
 
     c.execute(
         "CREATE TABLE IF NOT EXISTS ownership(room_code TEXT, cell_idx INTEGER, "
@@ -344,6 +379,8 @@ def get_room_state(code):
             'turn_timer': None,
             'trade_building': {},
             'buy_timer': None,
+            'initiative_rolls': {},  # user_id -> (d1, d2, total)
+            'pawn_selection': {},    # user_id -> waiting for pawn
         }
     return ROOM_STATES[code]
 
@@ -366,72 +403,72 @@ GROUP_COLORS_HEX = {
 BOARD = [
     {"name": "START", "type": "go"},
     {"name": "Mediterranean", "type": "property", "group": "brown", "price": 60,
-     "rent": [2, 10, 30, 90, 160, 250], "house": 50},
+     "rent": [2, 10, 30, 90, 160, 250], "house": 50, "hotel": 50},
     {"name": "Chest", "type": "chest"},
     {"name": "Baltic Ave", "type": "property", "group": "brown", "price": 60,
-     "rent": [4, 20, 60, 180, 320, 450], "house": 50},
+     "rent": [4, 20, 60, 180, 320, 450], "house": 50, "hotel": 50},
     {"name": "Income Tax", "type": "tax", "amount": 200},
     {"name": "Reading RR", "type": "property", "group": "station", "price": 200,
      "rent": [25, 50, 100, 200]},
     {"name": "Oriental Ave", "type": "property", "group": "lightblue", "price": 100,
-     "rent": [6, 30, 90, 270, 400, 550], "house": 50},
+     "rent": [6, 30, 90, 270, 400, 550], "house": 50, "hotel": 50},
     {"name": "Chance", "type": "chance"},
     {"name": "Vermont Ave", "type": "property", "group": "lightblue", "price": 100,
-     "rent": [6, 30, 90, 270, 400, 550], "house": 50},
+     "rent": [6, 30, 90, 270, 400, 550], "house": 50, "hotel": 50},
     {"name": "Connecticut", "type": "property", "group": "lightblue", "price": 120,
-     "rent": [8, 40, 100, 300, 450, 600], "house": 50},
+     "rent": [8, 40, 100, 300, 450, 600], "house": 50, "hotel": 50},
     {"name": "JAIL", "type": "jail"},
     {"name": "St.Charles Pl", "type": "property", "group": "pink", "price": 140,
-     "rent": [10, 50, 150, 450, 625, 750], "house": 100},
+     "rent": [10, 50, 150, 450, 625, 750], "house": 100, "hotel": 100},
     {"name": "Electric Co", "type": "property", "group": "utility", "price": 150,
      "rent": [4, 10]},
     {"name": "States Ave", "type": "property", "group": "pink", "price": 140,
-     "rent": [10, 50, 150, 450, 625, 750], "house": 100},
+     "rent": [10, 50, 150, 450, 625, 750], "house": 100, "hotel": 100},
     {"name": "Virginia Ave", "type": "property", "group": "pink", "price": 160,
-     "rent": [12, 60, 180, 500, 700, 900], "house": 100},
+     "rent": [12, 60, 180, 500, 700, 900], "house": 100, "hotel": 100},
     {"name": "Pennsylvania RR", "type": "property", "group": "station", "price": 200,
      "rent": [25, 50, 100, 200]},
     {"name": "St.James Pl", "type": "property", "group": "orange", "price": 180,
-     "rent": [14, 70, 200, 550, 750, 950], "house": 100},
+     "rent": [14, 70, 200, 550, 750, 950], "house": 100, "hotel": 100},
     {"name": "Chest", "type": "chest"},
     {"name": "Tennessee Ave", "type": "property", "group": "orange", "price": 180,
-     "rent": [14, 70, 200, 550, 750, 950], "house": 100},
+     "rent": [14, 70, 200, 550, 750, 950], "house": 100, "hotel": 100},
     {"name": "New York Ave", "type": "property", "group": "orange", "price": 200,
-     "rent": [16, 80, 220, 600, 800, 1000], "house": 100},
+     "rent": [16, 80, 220, 600, 800, 1000], "house": 100, "hotel": 100},
     {"name": "PARKING", "type": "free_parking"},
     {"name": "Kentucky Ave", "type": "property", "group": "red", "price": 220,
-     "rent": [18, 90, 250, 700, 875, 1050], "house": 150},
+     "rent": [18, 90, 250, 700, 875, 1050], "house": 150, "hotel": 150},
     {"name": "Chance", "type": "chance"},
     {"name": "Indiana Ave", "type": "property", "group": "red", "price": 220,
-     "rent": [18, 90, 250, 700, 875, 1050], "house": 150},
+     "rent": [18, 90, 250, 700, 875, 1050], "house": 150, "hotel": 150},
     {"name": "Illinois Ave", "type": "property", "group": "red", "price": 240,
-     "rent": [20, 100, 300, 750, 925, 1100], "house": 150},
+     "rent": [20, 100, 300, 750, 925, 1100], "house": 150, "hotel": 150},
     {"name": "B&O RR", "type": "property", "group": "station", "price": 200,
      "rent": [25, 50, 100, 200]},
     {"name": "Atlantic Ave", "type": "property", "group": "yellow", "price": 260,
-     "rent": [22, 110, 330, 800, 975, 1150], "house": 150},
+     "rent": [22, 110, 330, 800, 975, 1150], "house": 150, "hotel": 150},
     {"name": "Ventnor Ave", "type": "property", "group": "yellow", "price": 260,
-     "rent": [22, 110, 330, 800, 975, 1150], "house": 150},
+     "rent": [22, 110, 330, 800, 975, 1150], "house": 150, "hotel": 150},
     {"name": "Water Works", "type": "property", "group": "utility", "price": 150,
      "rent": [4, 10]},
     {"name": "Marvin Gardens", "type": "property", "group": "yellow", "price": 280,
-     "rent": [24, 120, 360, 850, 1025, 1200], "house": 150},
+     "rent": [24, 120, 360, 850, 1025, 1200], "house": 150, "hotel": 150},
     {"name": "GO TO JAIL", "type": "go_to_jail"},
     {"name": "Pacific Ave", "type": "property", "group": "green", "price": 300,
-     "rent": [26, 130, 390, 900, 1100, 1275], "house": 200},
+     "rent": [26, 130, 390, 900, 1100, 1275], "house": 200, "hotel": 200},
     {"name": "N.Carolina Ave", "type": "property", "group": "green", "price": 300,
-     "rent": [26, 130, 390, 900, 1100, 1275], "house": 200},
+     "rent": [26, 130, 390, 900, 1100, 1275], "house": 200, "hotel": 200},
     {"name": "Chest", "type": "chest"},
     {"name": "Pennsylvania Ave", "type": "property", "group": "green", "price": 320,
-     "rent": [28, 150, 450, 1000, 1200, 1400], "house": 200},
+     "rent": [28, 150, 450, 1000, 1200, 1400], "house": 200, "hotel": 200},
     {"name": "Short Line RR", "type": "property", "group": "station", "price": 200,
      "rent": [25, 50, 100, 200]},
     {"name": "Chance", "type": "chance"},
     {"name": "Park Place", "type": "property", "group": "darkblue", "price": 350,
-     "rent": [35, 175, 500, 1100, 1300, 1500], "house": 200},
+     "rent": [35, 175, 500, 1100, 1300, 1500], "house": 200, "hotel": 200},
     {"name": "Luxury Tax", "type": "tax", "amount": 75},
     {"name": "Boardwalk", "type": "property", "group": "darkblue", "price": 400,
-     "rent": [50, 200, 600, 1400, 1700, 2000], "house": 200},
+     "rent": [50, 200, 600, 1400, 1700, 2000], "house": 200, "hotel": 200},
 ]
 
 CHANCE_CARDS = [
@@ -477,12 +514,17 @@ class Player:
     jail_turns: int = 0
     is_active: bool = True
     doubles_count: int = 0
+    pawn_shape: str = 'circle'
+    turn_order: int = 0
 
     def pay(self, a):
         self.money -= a
 
     def receive(self, a):
         self.money += a
+
+    def get_pawn_symbol(self):
+        return PAWN_SHAPES.get(self.pawn_shape, '●')
 
 
 @dataclass
@@ -517,7 +559,11 @@ class Room:
         ROOM_CAN_ROLL[self.code] = val
 
     def active_players(self):
-        return [p for p in self.players.values() if p.is_active]
+        # Возвращаем игроков в порядке turn_order
+        return sorted(
+            [p for p in self.players.values() if p.is_active],
+            key=lambda p: p.turn_order
+        )
 
     def current_player(self):
         a = self.active_players()
@@ -632,7 +678,9 @@ class Database:
                     position=p['position'], color=p['color'],
                     is_bot=bool(p['is_bot']), in_jail=bool(p['in_jail']),
                     jail_turns=p['jail_turns'], is_active=bool(p['is_active']),
-                    doubles_count=p.get('doubles_count', 0)
+                    doubles_count=p.get('doubles_count', 0),
+                    pawn_shape=p.get('pawn_shape', 'circle'),
+                    turn_order=p.get('turn_order', 0)
                 )
                 room.player_ids.add(p['user_id'])
             c.execute("SELECT cell_idx, owner_id, houses FROM ownership WHERE room_code=?",
@@ -673,11 +721,11 @@ class Database:
         try:
             conn.execute(
                 "INSERT INTO players(room_code, user_id, name, money, position, color, "
-                "is_bot, in_jail, jail_turns, is_active, doubles_count) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                "is_bot, in_jail, jail_turns, is_active, doubles_count, pawn_shape, turn_order) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (code, player.user_id, player.name, player.money, player.position,
                  player.color, player.is_bot, player.in_jail, player.jail_turns,
-                 player.is_active, player.doubles_count))
+                 player.is_active, player.doubles_count, player.pawn_shape, player.turn_order))
             conn.commit()
             return True
         except sqlite3.IntegrityError:
@@ -691,9 +739,11 @@ class Database:
         try:
             conn.execute(
                 "UPDATE players SET money=?, position=?, in_jail=?, jail_turns=?, "
-                "is_active=?, doubles_count=? WHERE room_code=? AND user_id=?",
+                "is_active=?, doubles_count=?, pawn_shape=?, turn_order=? "
+                "WHERE room_code=? AND user_id=?",
                 (player.money, player.position, player.in_jail, player.jail_turns,
-                 player.is_active, player.doubles_count, code, player.user_id))
+                 player.is_active, player.doubles_count, player.pawn_shape,
+                 player.turn_order, code, player.user_id))
             conn.commit()
         except Exception as e:
             logging.error(f"update_player error: {e}")
@@ -834,6 +884,16 @@ def three_streets(room, pid):
                if owns_full_group(room, pid, g)) >= 3
 
 
+def get_house_cost(cell):
+    """Стоимость дома для данной клетки"""
+    return cell.get("house", 50)
+
+
+def get_hotel_cost(cell):
+    """Стоимость отеля для данной клетки (дороже дома)"""
+    return cell.get("hotel", cell.get("house", 50)) + cell.get("house", 50)
+
+
 def can_build(room, pid, idx):
     cell = BOARD[idx]
     if cell["type"] != "property" or cell.get("group") in ["station", "utility"]:
@@ -846,18 +906,28 @@ def can_build(room, pid, idx):
     if not room.allow_partial_build:
         if not owns_full_group(room, pid, cell["group"]):
             return False, 0
-    cost = cell.get("house", 50)
+    # Отель (5-й уровень) стоит дороже
+    if h < 4:
+        cost = get_house_cost(cell)
+    else:
+        cost = get_hotel_cost(cell)
     p = room.players.get(pid)
     if not p or p.money < cost:
         return False, 0
     return True, cost
 
 
+def format_buildings(houses):
+    """Форматирует постройки: H для домов, O для отеля"""
+    if houses == 0:
+        return ""
+    elif houses <= 4:
+        return "H" * houses
+    else:
+        return "HHHHO"
+
+
 def bot_should_accept_trade(room, bot_player, want, give):
-    """
-    Логика принятия обмена ботом.
-    Бот принимает, если предложение выгодно или нейтрально.
-    """
     def item_value(item, owner_id):
         if item[0] == 'money':
             return item[1]
@@ -867,10 +937,8 @@ def bot_should_accept_trade(room, bot_player, want, give):
                 return 0
             cell = BOARD[idx]
             _, h = room.ownership[idx]
-            # Оцениваем собственность как цену покупки + стоимость домов
             base = cell.get('price', 0)
             house_val = h * cell.get('house', 50)
-            # Бонус если владеем почти всей группой
             group = cell.get('group')
             if group and group not in ['station', 'utility']:
                 group_cells = [i for i, c in enumerate(BOARD) if c.get('group') == group]
@@ -880,32 +948,51 @@ def bot_should_accept_trade(room, bot_player, want, give):
                     base = int(base * 1.5)
             return base + house_val
 
-    # want = что бот должен отдать (что хочет инициатор)
-    # give = что бот получит (что предлагает инициатор)
-    # Для бота: он отдаёт want, получает give
     value_give_away = item_value(want, bot_player.user_id)
-    value_receive = item_value(give, 0)  # что бот получит
+    value_receive = item_value(give, 0)
 
-    # Проверяем что у бота есть достаточно денег для money-сделки
     if want[0] == 'money':
         if want[1] > bot_player.money:
             return False
-    if give[0] == 'money':
-        # Бот получает деньги — всегда выгодно если цена адекватна
-        pass
 
-    # Принимаем если получаем больше или равно тому что отдаём (с небольшим порогом)
     threshold = 0.85
     if value_give_away == 0:
         return True
     ratio = value_receive / max(value_give_away, 1)
-    # Также рандомный фактор — иногда бот может согласиться на невыгодную сделку
     random_factor = random.random()
     if ratio >= threshold:
         return True
     elif ratio >= 0.6 and random_factor > 0.6:
         return True
     return False
+
+
+def draw_pawn(draw, cx, cy, shape, color, size=8):
+    """Рисует пешку нужной формы кодом PIL"""
+    if shape == 'circle':
+        draw.ellipse([cx - size, cy - size, cx + size, cy + size],
+                     fill=color, outline="#000", width=2)
+    elif shape == 'square':
+        draw.rectangle([cx - size, cy - size, cx + size, cy + size],
+                       fill=color, outline="#000", width=2)
+    elif shape == 'triangle':
+        points = [
+            (cx, cy - size),
+            (cx - size, cy + size),
+            (cx + size, cy + size)
+        ]
+        draw.polygon(points, fill=color, outline="#000")
+    elif shape == 'star':
+        import math
+        points = []
+        for i in range(10):
+            angle = math.pi / 5 * i - math.pi / 2
+            r = size if i % 2 == 0 else size * 0.4
+            points.append((cx + r * math.cos(angle), cy + r * math.sin(angle)))
+        draw.polygon(points, fill=color, outline="#000")
+    else:
+        draw.ellipse([cx - size, cy - size, cx + size, cy + size],
+                     fill=color, outline="#000", width=2)
 
 
 def render_board(room):
@@ -954,22 +1041,29 @@ def render_board(room):
                 draw.rectangle([x1 + 2, y1 + 2, x2 - 2, y1 + 12], fill=gc)
             else:
                 draw.rectangle([x1 + 2, y1 + 2, x1 + 12, y2 - 2], fill=gc)
+
+        # Отображение построек: HHHHO для отеля
         if idx in room.ownership:
             _, h = room.ownership[idx]
             if h > 0:
-                htxt = "H" * min(h, 4) if h < 5 else "★"
+                htxt = format_buildings(h)
                 draw.text((x1 + 3, y1 + 28), htxt, fill="#000", font=fs)
+
         draw.text((x1 + 3, y1 + 3), c["name"][:12], fill="#000", font=fb)
         if tp == "property":
             draw.text((x1 + 3, y1 + 16), f"${c['price']}", fill="#555", font=fs)
 
-    for i, p in enumerate(room.active_players()):
+    # Рисуем пешки нужной формы
+    active = room.active_players()
+    for i, p in enumerate(active):
         x1, y1, x2, y2 = _cr(p.position, cs)
-        cx = x1 + 10 + (i % 3) * 14
-        cy = y1 + 40 + (i // 3) * 14
-        draw.ellipse([cx - 7, cy - 7, cx + 7, cy + 7],
-                     fill=p.color, outline="#000", width=2)
-        draw.text((cx - 3, cy - 5), str(i + 1), fill="#FFF", font=fs)
+        cx = int(x1 + 10 + (i % 3) * 14)
+        cy = int(y1 + 40 + (i // 3) * 14)
+        draw_pawn(draw, cx, cy, p.pawn_shape, p.color, size=6)
+        try:
+            draw.text((cx - 3, cy - 5), str(i + 1), fill="#FFF", font=fs)
+        except:
+            pass
 
     cx, cy = size // 2, size // 2
     draw.rectangle([cx - 150, cy - 80, cx + 150, cy + 80],
@@ -977,7 +1071,8 @@ def render_board(room):
     draw.text((cx - 55, cy - 70), "RUZOPOLY", fill="#2C3E50", font=ft)
     cur = room.current_player()
     if cur and room.is_started:
-        draw.text((cx - 140, cy - 35), f"{cur.name}", fill="#000", font=fb)
+        pawn_sym = cur.get_pawn_symbol()
+        draw.text((cx - 140, cy - 35), f"{pawn_sym} {cur.name}", fill="#000", font=fb)
         draw.text((cx - 140, cy - 15), f"${cur.money}", fill="#DAA520", font=fb)
         draw.text((cx - 140, cy + 5), BOARD[cur.position]['name'], fill="#555", font=fs)
 
@@ -1049,7 +1144,6 @@ async def _turn_timer_task(room_code):
     except asyncio.CancelledError:
         return
 
-    # Перечитываем из БД после ожидания
     room = db.get_room(room_code)
     if not room or not room.is_started:
         return
@@ -1057,7 +1151,6 @@ async def _turn_timer_task(room_code):
     if not cur or cur.is_bot:
         return
 
-    # Проверяем актуальное состояние can_roll из глобального словаря
     can_roll_now = ROOM_CAN_ROLL.get(room_code, True)
 
     if can_roll_now and room.awaiting_buy is None:
@@ -1078,7 +1171,6 @@ async def _turn_timer_task(room_code):
             await do_delay(room_code, 3, 'turn_end_countdown')
             await end_turn(room)
     else:
-        # can_roll is False but no awaiting_buy — something stuck, force end turn
         room.add_event(t('auto_skip', room.language, cur.name))
         await do_delay(room_code, 3, 'turn_end_countdown')
         await end_turn(room)
@@ -1150,7 +1242,6 @@ async def send_board(room, force=False, timer_text=None):
     st = get_room_state(room.code)
     now = time.time()
 
-    # Используем актуальное значение can_roll из глобального словаря
     can_roll_now = ROOM_CAN_ROLL.get(room.code, True)
 
     text = ""
@@ -1160,17 +1251,19 @@ async def send_board(room, force=False, timer_text=None):
         text += "\n".join(st['event_log'][-4:]) + "\n"
     text += f"\n🎲 RUZOPOLY `{room.code}`\n"
     if cur:
-        text += f"👑 {cur.name} — ${cur.money}\n"
+        pawn_sym = cur.get_pawn_symbol()
+        text += f"👑 {pawn_sym} {cur.name} — ${cur.money}\n"
         text += f"📍 {BOARD[cur.position]['name']}\n"
         if cur.doubles_count > 0:
             text += f"🎯 Doubles streak: x{cur.doubles_count}\n"
     text += "\n💰 Players:\n"
-    for p in room.players.values():
+    for p in room.active_players():
         mk = "▶️" if cur and p.user_id == cur.user_id else "  "
         bm = "🤖" if p.is_bot else "👤"
         stat = "" if p.is_active else " ❌"
         jl = " 🔒" if p.in_jail else ""
         em = ""
+        pawn_sym = p.get_pawn_symbol()
         emojis = st.get('emojis', {})
         if p.user_id in emojis:
             et, etx = emojis[p.user_id]
@@ -1178,9 +1271,9 @@ async def send_board(room, force=False, timer_text=None):
                 em = f" {etx}"
             else:
                 del emojis[p.user_id]
-        text += f"{mk}{bm} {p.name}: ${p.money}{jl}{stat}{em}\n"
+        text += f"{mk}{bm}{pawn_sym} {p.name}: ${p.money}{jl}{stat}{em}\n"
 
-    for uid in room.player_ids:
+    for uid in list(room.player_ids):
         if uid < 0:
             continue
         last = LAST_EDIT.get(uid, 0)
@@ -1188,7 +1281,6 @@ async def send_board(room, force=False, timer_text=None):
             continue
 
         kb_buttons = []
-        # Показываем кнопки только текущему игроку
         if (cur and room.is_started and uid == cur.user_id
                 and not st['is_moving'] and not st['in_cooldown']):
 
@@ -1204,7 +1296,7 @@ async def send_board(room, force=False, timer_text=None):
                     if h < 4:
                         lb = t('build_house', room.language, cell['name'], cost)
                     else:
-                        lb = f"🏨 Hotel on {cell['name']} (${cost})"
+                        lb = t('build_hotel', room.language, cell['name'], cost)
                     kb_buttons.append([InlineKeyboardButton(
                         text=lb,
                         callback_data=f"build_{room.code}_{idx}")])
@@ -1283,8 +1375,7 @@ async def send_board(room, force=False, timer_text=None):
                                 caption=text, parse_mode="Markdown",
                                 reply_markup=kb)
                             room.player_message_ids[uid] = msg.message_id
-                            db.set_player_message_id(room.code, uid,
-                                                     msg.message_id)
+                            db.set_player_message_id(room.code, uid, msg.message_id)
                             LAST_EDIT[uid] = time.time()
                         except:
                             pass
@@ -1312,6 +1403,45 @@ async def cmd_start(message: Message, state: FSMContext):
         [InlineKeyboardButton(text="🇬🇧 English", callback_data="lang_en"),
          InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ru")]])
     await message.answer(t('welcome', lang), reply_markup=kb, parse_mode="Markdown")
+
+
+# ─── /roll КОМАНДА ───
+@router.message(Command("roll"))
+async def cmd_roll(message: Message):
+    uid = message.from_user.id
+    conn = sqlite3.connect(str(DB_PATH))
+    c = conn.cursor()
+    c.execute("SELECT room_code FROM user_room WHERE user_id=?", (uid,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        await message.answer("❌ You're not in any room!")
+        return
+    code = row[0]
+    room = db.get_room(code)
+    if not room or not room.is_started:
+        await message.answer("❌ Game not active!")
+        return
+    cur = room.current_player()
+    if not cur or cur.user_id != uid:
+        lang = db.get_user_language(uid)
+        await message.answer(t('not_your_turn', lang))
+        return
+    st = get_room_state(code)
+    can_roll_now = ROOM_CAN_ROLL.get(code, True)
+    if not can_roll_now or st['in_cooldown']:
+        lang = db.get_user_language(uid)
+        await message.answer(t('waiting', lang))
+        return
+    if room.awaiting_buy is not None:
+        lang = db.get_user_language(uid)
+        await message.answer(t('waiting', lang))
+        return
+    try:
+        await message.delete()
+    except:
+        pass
+    await do_roll(room)
 
 
 @router.callback_query(F.data.startswith("lang_"))
@@ -1384,7 +1514,8 @@ async def cb_qjoin(cb: CallbackQuery):
     db.set_user_room(cb.from_user.id, room.code)
     db.update_room(room)
     await cb.answer(t('joined_room', lang, room.code))
-    await show_lobby(cb.message, room)
+    # Предложить выбор пешки
+    await ask_pawn_shape(cb.message, cb.from_user.id, room, lang)
 
 
 @router.callback_query(F.data == "back_to_menu")
@@ -1514,11 +1645,66 @@ async def cb_time(cb: CallbackQuery, state: FSMContext):
     db.add_player(code, p)
     db.set_user_room(cb.from_user.id, code)
     await state.clear()
+    # Предложить выбор пешки создателю
+    await ask_pawn_shape(cb.message, cb.from_user.id, room, lang)
+
+
+async def ask_pawn_shape(msg, uid, room, lang):
+    """Показывает меню выбора пешки"""
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text=t('pawn_circle', lang),
+                callback_data=f"pawn_{room.code}_circle"),
+            InlineKeyboardButton(
+                text=t('pawn_square', lang),
+                callback_data=f"pawn_{room.code}_square"),
+        ],
+        [
+            InlineKeyboardButton(
+                text=t('pawn_triangle', lang),
+                callback_data=f"pawn_{room.code}_triangle"),
+            InlineKeyboardButton(
+                text=t('pawn_star', lang),
+                callback_data=f"pawn_{room.code}_star"),
+        ]
+    ])
+    try:
+        if hasattr(msg, 'edit_text'):
+            await msg.edit_text(t('choose_pawn', lang), reply_markup=kb)
+        else:
+            await msg.answer(t('choose_pawn', lang), reply_markup=kb)
+    except:
+        try:
+            await msg.answer(t('choose_pawn', lang), reply_markup=kb)
+        except:
+            pass
+
+
+@router.callback_query(F.data.startswith("pawn_"))
+async def cb_pawn_select(cb: CallbackQuery):
+    parts = cb.data.split("_")
+    code = parts[1]
+    shape = parts[2]
+    lang = db.get_user_language(cb.from_user.id)
+    room = db.get_room(code)
+    if not room:
+        await cb.answer("Room not found!", show_alert=True)
+        return
+    uid = cb.from_user.id
+    if uid not in room.players:
+        await cb.answer("You're not in this room!", show_alert=True)
+        return
+    p = room.players[uid]
+    p.pawn_shape = shape
+    db.update_player(code, p)
+    sym = PAWN_SHAPES.get(shape, '●')
+    await cb.answer(t('pawn_chosen', lang, sym))
     await show_lobby(cb.message, room)
 
 
 async def show_lobby(m, room):
-    pt = "\n".join([f"{'🤖' if p.is_bot else '👤'} {p.name}"
+    pt = "\n".join([f"{'🤖' if p.is_bot else '👤'}{p.get_pawn_symbol()} {p.name}"
                     for p in room.players.values()])
     bs = t('enabled', room.language) if room.allow_buyout else t('disabled', room.language)
     pb = t('enabled', room.language) if room.allow_partial_build else t(
@@ -1567,8 +1753,10 @@ async def cb_addbot(cb: CallbackQuery):
     avail = [n for n in bn if n not in used]
     name = random.choice(avail) if avail else f"Bot{random.randint(1, 99)}"
     bid = -random.randint(10000, 99999)
+    # Боты получают случайную форму пешки
+    bot_shape = random.choice(list(PAWN_SHAPES.keys()))
     p = Player(user_id=bid, name=f"🤖 {name}",
-               color=get_available_color(room), is_bot=True)
+               color=get_available_color(room), is_bot=True, pawn_shape=bot_shape)
     if not db.add_player(code, p):
         await cb.answer("Room full!", show_alert=True)
         return
@@ -1577,6 +1765,51 @@ async def cb_addbot(cb: CallbackQuery):
     db.update_room(room)
     await cb.answer(t('bot_added', lang, name))
     await show_lobby(cb, room)
+
+
+# ─── ОПРЕДЕЛЕНИЕ ОЧЕРЁДНОСТИ ───
+async def determine_turn_order(room):
+    """
+    Бросает кубики для каждого игрока и определяет очерёдность.
+    У кого больше — тот первый.
+    """
+    rolls = {}
+    result_text = t('dice_order', room.language) + "\n"
+
+    all_players = list(room.players.values())
+
+    for p in all_players:
+        d1 = random.randint(1, 6)
+        d2 = random.randint(1, 6)
+        total = d1 + d2
+        rolls[p.user_id] = (d1, d2, total)
+        result_text += t('initiative_roll', room.language, p.name, total, d1, d2) + "\n"
+
+    # Сортируем по убыванию суммы, при равенстве — случайный порядок
+    sorted_players = sorted(all_players,
+                             key=lambda p: (rolls[p.user_id][2], random.random()),
+                             reverse=True)
+
+    order_text = ""
+    for i, p in enumerate(sorted_players):
+        p.turn_order = i
+        db.update_player(room.code, p)
+        room.players[p.user_id].turn_order = i
+        d1, d2, total = rolls[p.user_id]
+        order_text += f"{i + 1}. {p.get_pawn_symbol()} {p.name} — {total} ({d1}+{d2})\n"
+
+    result_text += "\n" + t('turn_order', room.language, order_text)
+
+    # Отправляем результат всем игрокам
+    for uid in room.player_ids:
+        if uid < 0:
+            continue
+        try:
+            await bot.send_message(chat_id=uid, text=result_text, parse_mode="Markdown")
+        except Exception as e:
+            logging.error(f"initiative send error to {uid}: {e}")
+
+    await asyncio.sleep(3)
 
 
 @router.callback_query(F.data.startswith("start_"))
@@ -1600,6 +1833,15 @@ async def cb_start(cb: CallbackQuery):
         await cb.message.edit_text(t('game_starting', room.language))
     except:
         pass
+
+    # Определяем очерёдность хода через бросок кубиков
+    await determine_turn_order(room)
+
+    # Перечитываем из БД после обновления очерёдности
+    room = db.get_room(code)
+    if not room:
+        return
+
     room.add_event(t('game_started', room.language))
     cur = room.current_player()
     if cur:
@@ -1674,7 +1916,7 @@ async def do_join(msg, room, state):
     db.update_room(room)
     await state.clear()
     await msg.answer(t('joined_room', lang, room.code), parse_mode="Markdown")
-    await show_lobby(msg, room)
+    await ask_pawn_shape(msg, msg.from_user.id, room, lang)
 
 
 # ─── TRADE MONEY INPUT ───
@@ -1792,7 +2034,6 @@ async def cb_roll(cb: CallbackQuery):
         await cb.answer(t('not_your_turn', lang), show_alert=True)
         return
     st = get_room_state(room.code)
-    # Используем глобальный словарь для актуального значения
     can_roll_now = ROOM_CAN_ROLL.get(code, True)
     if not can_roll_now or st['in_cooldown']:
         await cb.answer(t('waiting', lang), show_alert=True)
@@ -1806,7 +2047,6 @@ async def cb_roll(cb: CallbackQuery):
 
 async def do_roll(room):
     code = room.code
-    # Перечитываем из БД для актуальных данных
     room = db.get_room(code)
     if not room or not room.is_started:
         return
@@ -1817,7 +2057,6 @@ async def do_roll(room):
     await cancel_turn_timer(code)
     await cancel_buy_timer(code)
 
-    # Блокируем повторный бросок
     ROOM_CAN_ROLL[code] = False
     await send_board(room)
 
@@ -2244,7 +2483,6 @@ async def end_turn(room):
     room.awaiting_buy = None
     room.awaiting_buyout = False
     room.next_turn()
-    # Устанавливаем can_roll через глобальный словарь напрямую
     ROOM_CAN_ROLL[code] = True
     db.update_room(room)
     cur = room.current_player()
@@ -2262,7 +2500,6 @@ async def maybe_bot(room):
     room = db.get_room(code)
     if not room or not room.is_started:
         return
-    # Пропускаем неактивных игроков
     for _ in range(len(room.players) + 1):
         cur = room.current_player()
         if not cur:
@@ -2274,7 +2511,6 @@ async def maybe_bot(room):
     cur = room.current_player()
     if not cur or not cur.is_bot:
         return
-    # Проверяем можно ли ходить
     can_roll_now = ROOM_CAN_ROLL.get(code, True)
     if not can_roll_now:
         return
@@ -2282,7 +2518,6 @@ async def maybe_bot(room):
     if st['in_cooldown']:
         return
     await asyncio.sleep(2)
-    # Перепроверяем после паузы
     room = db.get_room(code)
     if not room or not room.is_started:
         return
@@ -2550,7 +2785,6 @@ async def cb_trade_start(cb: CallbackQuery):
         await cb.answer(t('not_your_turn', room.language), show_alert=True)
         return
     btns = []
-    # Теперь показываем всех активных игроков включая ботов
     for p in room.active_players():
         if p.user_id != cur.user_id:
             icon = "🤖" if p.is_bot else "👤"
@@ -2707,7 +2941,6 @@ async def send_trade_proposal(room, from_uid, tb, msg=None):
 
     target_player = room.players.get(target_id)
 
-    # Если цель — бот, обрабатываем автоматически
     if target_player and target_player.is_bot:
         if from_uid in st.get('trade_building', {}):
             del st['trade_building'][from_uid]
@@ -2716,10 +2949,8 @@ async def send_trade_proposal(room, from_uid, tb, msg=None):
                 await msg.delete()
             except:
                 pass
-        # Принять или отклонить на основе логики бота
         accepts = bot_should_accept_trade(room, target_player, want, give)
         if accepts:
-            # Выполняем обмен
             from_p = room.players.get(from_uid)
             to_p = target_player
             if from_p and to_p:
@@ -2760,7 +2991,6 @@ async def send_trade_proposal(room, from_uid, tb, msg=None):
         await send_board(room, force=True)
         return
 
-    # Для живого игрока — сохраняем предложение и показываем кнопки
     target_name = target_player.name if target_player else "?"
     st['trades'][target_id] = {
         'from': from_uid, 'want': want, 'give': give, 'from_name': from_name}
