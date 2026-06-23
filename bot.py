@@ -1928,7 +1928,6 @@ async def handle_trade_money_input(message: Message, state: FSMContext):
     if not code:
         await state.clear()
         return
-    await state.clear()
 
     try:
         amount = int(message.text.strip().replace('$', ''))
@@ -1937,12 +1936,15 @@ async def handle_trade_money_input(message: Message, state: FSMContext):
             await message.delete()
         except:
             pass
+        await state.clear()
         return
 
     try:
         await message.delete()
     except:
         pass
+
+    await state.clear()
 
     room = db.get_room(code)
     if not room:
@@ -1982,8 +1984,12 @@ async def handle_trade_money_input(message: Message, state: FSMContext):
         if amount <= 0:
             return
         tb['give'] = ('money', amount)
+        # После отправки предложения обмена - обновляем доску
         await send_trade_proposal(room, message.from_user.id, tb)
-
+        # Обновляем доску после отправки обмена
+        room = db.get_room(code)
+        if room:
+            await send_board(room, force=True)
 
 # ─── EMOJI HANDLER ───
 @router.message(~StateFilter(
