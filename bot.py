@@ -2041,7 +2041,9 @@ async def cb_roll(cb: CallbackQuery):
         return
     st = get_room_state(room.code)
     can_roll_now = ROOM_CAN_ROLL.get(code, True)
-    if not can_roll_now or st['in_cooldown']:
+    
+    # Проверяем только is_moving (движение фишки), но НЕ in_cooldown
+    if not can_roll_now or st.get('is_moving', False):
         await cb.answer(t('waiting', lang), show_alert=True)
         return
     if room.awaiting_buy is not None:
@@ -2049,7 +2051,6 @@ async def cb_roll(cb: CallbackQuery):
         return
     await cb.answer()
     await do_roll(room)
-
 
 async def do_roll(room):
     code = room.code
