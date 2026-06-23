@@ -2093,12 +2093,19 @@ async def do_roll(room):
     if not cur:
         return
 
+    # Останавливаем все таймеры
     await cancel_turn_timer(code)
     await cancel_buy_timer(code)
 
+    # Блокируем повторный бросок
     ROOM_CAN_ROLL[code] = False
+    
+    # Сбрасываем состояние движения если оно осталось от прошлого хода
+    st = get_room_state(code)
+    st['is_moving'] = False
+    st['in_cooldown'] = False
+    
     await send_board(room)
-
     # Бросаем кубики один раз для всех случаев
     d1, d2 = random.randint(1, 6), random.randint(1, 6)
     total = d1 + d2
