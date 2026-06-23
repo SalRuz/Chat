@@ -2239,14 +2239,22 @@ async def handle_prop(room, player, cell, dice, dbl=False):
         room = db.get_room(room.code)
         if not room:
             return
-        ROOM_CAN_ROLL[room.code] = True
-        room.add_event(t('doubles_turn', room.language, player.name))
-        await send_board(room, force=True)
-        await start_turn_timer(room.code)
         cur = room.current_player()
-        if cur and cur.is_bot:
-            await maybe_bot(room)
-
+        if not cur:
+            return
+        # Проверяем: если у игрока doubles_count > 0, даем еще один ход
+        # Но после этого хода счетчик сбросится в do_roll если не будет дубля
+        if cur.doubles_count > 0:
+            ROOM_CAN_ROLL[room.code] = True
+            room.add_event(t('doubles_turn', room.language, player.name))
+            await send_board(room, force=True)
+            await start_turn_timer(room.code)
+            if cur.is_bot:
+                await maybe_bot(room)
+        else:
+            # Если счетчик уже сброшен - заканчиваем ход
+            await do_delay(room.code, 3, 'turn_end_countdown')
+            await end_turn(room)
     async def finish_no_doubles():
         await do_delay(room.code, 3, 'turn_end_countdown')
         await end_turn(room)
