@@ -2252,6 +2252,8 @@ async def handle_prop(room, player, cell, dice, dbl=False):
         if oid == player.user_id:
             room.add_event(t('own_property', room.language, player.name, cell['name']))
             cb2, cost2 = can_build(room, player.user_id, idx)
+            
+            # При дубле просто разрешаем бросить снова, кнопки будут показаны автоматически
             if dbl:
                 room = db.get_room(room.code)
                 if not room:
@@ -2284,13 +2286,13 @@ async def handle_prop(room, player, cell, dice, dbl=False):
                 elif player.is_bot:
                     await maybe_bot(room)
             else:
-                if cb2 and not player.is_bot:
-                    room.awaiting_buy = idx
-                    room.awaiting_buyout = False
-                    db.update_room(room)
-                    await send_board(room, force=True)
-                    await start_buy_timer(room.code)
-                elif cb2 and player.is_bot:
+                # Если нет дубля - разрешаем бросить снова и показываем кнопки
+                # НЕ ставим awaiting_buy для своей собственности
+                ROOM_CAN_ROLL[room.code] = True
+                await send_board(room, force=True)
+                
+                # Для бота - автоматически строим если можем
+                if player.is_bot and cb2:
                     await asyncio.sleep(1)
                     room = db.get_room(room.code)
                     if room:
@@ -2309,11 +2311,13 @@ async def handle_prop(room, player, cell, dice, dbl=False):
                                 else:
                                     room.add_event(t('house_built', room.language,
                                                      p.name, cell['name'], hh, hh + 1))
-                    await finish_no_doubles()
+                                await send_board(room, force=True)
+                    await asyncio.sleep(1)
+                    await maybe_bot(room)
                 else:
-                    await send_board(room)
-                    await finish_no_doubles()
-        else:
+                    # Для живого игрока - просто ждем его действий
+                    # Кнопки строительства и броска будут показаны через send_board
+                    await start_turn_timer(room.code)        else:
             owner = room.players.get(oid)
             if not owner or not owner.is_active:
                 await send_board(room)
