@@ -2109,7 +2109,7 @@ async def do_roll(room):
                 await end_turn(room)
         return
 
-    d1, d2 = random.randint(1, 6), random.randint(1, 6)
+        d1, d2 = random.randint(1, 6), random.randint(1, 6)
     total = d1 + d2
     dbl = (d1 == d2)
     room.add_event(t('rolled', room.language, cur.name, d1, d2, total))
@@ -2129,6 +2129,11 @@ async def do_roll(room):
             await end_turn(room)
             return
         room.add_event(t('doubles', room.language, cur.name))
+    else:
+        # Если НЕ дубль - сбрасываем счетчик дублей
+        cur.doubles_count = 0
+        db.update_player(room.code, cur)
+    
     await send_board(room)
     await do_delay(room.code, 3, 'moving_countdown')
     room = db.get_room(room.code)
@@ -2138,7 +2143,6 @@ async def do_roll(room):
     if not cur:
         return
     await move(room, cur, total, total, dbl)
-
 
 async def move(room, player, steps, dice, dbl=False):
     old = player.position
