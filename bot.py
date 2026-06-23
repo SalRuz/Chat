@@ -1144,6 +1144,7 @@ async def _turn_timer_task(room_code):
     except asyncio.CancelledError:
         return
 
+    # Перечитываем комнату после ожидания
     room = db.get_room(room_code)
     if not room or not room.is_started:
         return
@@ -1151,17 +1152,32 @@ async def _turn_timer_task(room_code):
     if not cur or cur.is_bot:
         return
 
+    # Проверяем актуальное состояние
     can_roll_now = ROOM_CAN_ROLL.get(room_code, True)
+    st = get_room_state(room_code)
 
-    if can_roll_now and room.awaiting_buy is None:
+    # Если игрок должен бросить кубик
+    if can_roll_now and room.awaiting_buy is None and not st.get('is_moving', False):
         room.add_event(t('auto_roll', room.language, cur.name))
-        await do_roll(room)
+        db.update_room(room)
+        await send_board(room, force=True)
+        await asyncio.sleep(0.5)  # Небольшая задержка чтобы игрок увидел сообщение
+        
+        # Выполняем бросок
+        room = db.get_room(room_code)
+        if room and room.is_started:
+            cur = room.current_player()
+            if cur and cur.user_id == room.current_player().user_id:
+                await do_roll(room)
+    
+    # Если ожидается решение о покупке
     elif room.awaiting_buy is not None:
         room.add_event(t('auto_skip', room.language, cur.name))
         room.awaiting_buy = None
         room.awaiting_buyout = False
         db.update_room(room)
         await cancel_buy_timer(room_code)
+        
         if cur.doubles_count > 0:
             ROOM_CAN_ROLL[room_code] = True
             await send_board(room, force=True)
@@ -1170,11 +1186,26 @@ async def _turn_timer_task(room_code):
         else:
             await do_delay(room_code, 3, 'turn_end_countdown')
             await end_turn(room)
+    
+    # Если игрок заблокирован (после действия)
     else:
         room.add_event(t('auto_skip', room.language, cur.name))
-        await do_delay(room_code, 3, 'turn_end_countdown')
-        await end_turn(room)
-
+        db.update_room(room)
+        await send_board(room, force=True)
+        await asyncio.sleep(1)
+        
+        # Проверяем не завис ли игрок
+        room = db.get_room(room_code)
+        if room and room.is_started:
+            cur = room.current_player()
+            if cur:
+                # Если можно бросить - бросаем
+                if ROOM_CAN_ROLL.get(room_code, True) and room.awaiting_buy is None:
+                    await do_roll(room)
+                else:
+                    # Иначе заканчиваем ход
+                    await do_delay(room_code, 2, 'turn_end_countdown')
+                    await end_turn(room)
 
 async def cancel_buy_timer(code):
     st = get_room_state(code)
