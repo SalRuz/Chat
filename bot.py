@@ -2068,9 +2068,13 @@ async def do_roll(room):
     ROOM_CAN_ROLL[code] = False
     await send_board(room)
 
+    # Бросаем кубики один раз для всех случаев
+    d1, d2 = random.randint(1, 6), random.randint(1, 6)
+    total = d1 + d2
+    dbl = (d1 == d2)
+
     if cur.in_jail:
-        d1, d2 = random.randint(1, 6), random.randint(1, 6)
-        if d1 == d2:
+        if dbl:
             cur.in_jail = False
             cur.jail_turns = 0
             cur.doubles_count = 0
@@ -2084,7 +2088,7 @@ async def do_roll(room):
             cur = room.players.get(cur.user_id)
             if not cur:
                 return
-            await move(room, cur, d1 + d2, d1 + d2, False)
+            await move(room, cur, total, total, False)
         else:
             cur.jail_turns += 1
             if cur.jail_turns >= 3:
@@ -2102,7 +2106,7 @@ async def do_roll(room):
                 cur = room.players.get(cur.user_id)
                 if not cur:
                     return
-                await move(room, cur, d1 + d2, d1 + d2, False)
+                await move(room, cur, total, total, False)
             else:
                 db.update_player(room.code, cur)
                 room.add_event(t('jail_no_doubles', room.language, cur.name,
@@ -2111,9 +2115,7 @@ async def do_roll(room):
                 await end_turn(room)
         return
 
-        d1, d2 = random.randint(1, 6), random.randint(1, 6)
-    total = d1 + d2
-    dbl = (d1 == d2)
+    # Обычный ход (не в тюрьме)
     room.add_event(t('rolled', room.language, cur.name, d1, d2, total))
     if dbl:
         cur.doubles_count += 1
@@ -2145,7 +2147,7 @@ async def do_roll(room):
     if not cur:
         return
     await move(room, cur, total, total, dbl)
-
+    
 async def move(room, player, steps, dice, dbl=False):
     old = player.position
     new = (old + steps) % 40
