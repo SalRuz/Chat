@@ -149,6 +149,8 @@ TRANSLATIONS = {
         'trade_sent': "🔄 Trade offer sent to {}",
         'auto_roll': "🎲 Auto-rolling for {}!",
         'auto_skip': "⏰ Auto-skip for {}",
+        'bot_trade_accepted': "🤖 {} accepted the trade offer!",
+        'bot_trade_rejected': "🤖 {} declined the trade offer.",
     },
     'ru': {
         'welcome': "🎩 Добро пожаловать в **RUZOPOLY**!\n\nИгра в стиле Монополии с **Ruzcoin** 💰\n\nВыберите язык:",
@@ -258,6 +260,8 @@ TRANSLATIONS = {
         'trade_sent': "🔄 Предложение обмена отправлено {}",
         'auto_roll': "🎲 Авто-бросок для {}!",
         'auto_skip': "⏰ Авто-пропуск для {}",
+        'bot_trade_accepted': "🤖 {} принял предложение обмена!",
+        'bot_trade_rejected': "🤖 {} отклонил предложение обмена.",
     }
 }
 
@@ -517,7 +521,9 @@ class Room:
 
     def current_player(self):
         a = self.active_players()
-        return a[self.current_turn % len(a)] if a else None
+        if not a:
+            return None
+        return a[self.current_turn % len(a)]
 
     def next_turn(self):
         a = self.active_players()
@@ -847,6 +853,61 @@ def can_build(room, pid, idx):
     return True, cost
 
 
+def bot_should_accept_trade(room, bot_player, want, give):
+    """
+    Логика принятия обмена ботом.
+    Бот принимает, если предложение выгодно или нейтрально.
+    """
+    def item_value(item, owner_id):
+        if item[0] == 'money':
+            return item[1]
+        else:
+            idx = item[1]
+            if idx not in room.ownership:
+                return 0
+            cell = BOARD[idx]
+            _, h = room.ownership[idx]
+            # Оцениваем собственность как цену покупки + стоимость домов
+            base = cell.get('price', 0)
+            house_val = h * cell.get('house', 50)
+            # Бонус если владеем почти всей группой
+            group = cell.get('group')
+            if group and group not in ['station', 'utility']:
+                group_cells = [i for i, c in enumerate(BOARD) if c.get('group') == group]
+                owned = sum(1 for gi in group_cells
+                            if gi in room.ownership and room.ownership[gi][0] == owner_id)
+                if owned == len(group_cells) - 1:
+                    base = int(base * 1.5)
+            return base + house_val
+
+    # want = что бот должен отдать (что хочет инициатор)
+    # give = что бот получит (что предлагает инициатор)
+    # Для бота: он отдаёт want, получает give
+    value_give_away = item_value(want, bot_player.user_id)
+    value_receive = item_value(give, 0)  # что бот получит
+
+    # Проверяем что у бота есть достаточно денег для money-сделки
+    if want[0] == 'money':
+        if want[1] > bot_player.money:
+            return False
+    if give[0] == 'money':
+        # Бот получает деньги — всегда выгодно если цена адекватна
+        pass
+
+    # Принимаем если получаем больше или равно тому что отдаём (с небольшим порогом)
+    threshold = 0.85
+    if value_give_away == 0:
+        return True
+    ratio = value_receive / max(value_give_away, 1)
+    # Также рандомный фактор — иногда бот может согласиться на невыгодную сделку
+    random_factor = random.random()
+    if ratio >= threshold:
+        return True
+    elif ratio >= 0.6 and random_factor > 0.6:
+        return True
+    return False
+
+
 def render_board(room):
     size = 900
     img = Image.new('RGB', (size, size), "#F5E9D3")
@@ -987,13 +1048,19 @@ async def _turn_timer_task(room_code):
         await asyncio.sleep(room.turn_time)
     except asyncio.CancelledError:
         return
+
+    # Перечитываем из БД после ожидания
     room = db.get_room(room_code)
     if not room or not room.is_started:
         return
     cur = room.current_player()
-    if not cur:
+    if not cur or cur.is_bot:
         return
-    if room.can_roll and room.awaiting_buy is None:
+
+    # Проверяем актуальное состояние can_roll из глобального словаря
+    can_roll_now = ROOM_CAN_ROLL.get(room_code, True)
+
+    if can_roll_now and room.awaiting_buy is None:
         room.add_event(t('auto_roll', room.language, cur.name))
         await do_roll(room)
     elif room.awaiting_buy is not None:
@@ -1001,14 +1068,20 @@ async def _turn_timer_task(room_code):
         room.awaiting_buy = None
         room.awaiting_buyout = False
         db.update_room(room)
+        await cancel_buy_timer(room_code)
         if cur.doubles_count > 0:
-            room.can_roll = True
+            ROOM_CAN_ROLL[room_code] = True
             await send_board(room, force=True)
-            await start_turn_timer(room.code)
+            await start_turn_timer(room_code)
             await maybe_bot(room)
         else:
-            await do_delay(room.code, 3, 'turn_end_countdown')
+            await do_delay(room_code, 3, 'turn_end_countdown')
             await end_turn(room)
+    else:
+        # can_roll is False but no awaiting_buy — something stuck, force end turn
+        room.add_event(t('auto_skip', room.language, cur.name))
+        await do_delay(room_code, 3, 'turn_end_countdown')
+        await end_turn(room)
 
 
 async def cancel_buy_timer(code):
@@ -1040,12 +1113,12 @@ async def _buy_timer_task(room_code):
     room.awaiting_buyout = False
     db.update_room(room)
     if cur.doubles_count > 0:
-        room.can_roll = True
+        ROOM_CAN_ROLL[room_code] = True
         await send_board(room, force=True)
-        await start_turn_timer(room.code)
+        await start_turn_timer(room_code)
         await maybe_bot(room)
     else:
-        await do_delay(room.code, 3, 'turn_end_countdown')
+        await do_delay(room_code, 3, 'turn_end_countdown')
         await end_turn(room)
 
 
@@ -1076,6 +1149,9 @@ async def send_board(room, force=False, timer_text=None):
     cur = room.current_player()
     st = get_room_state(room.code)
     now = time.time()
+
+    # Используем актуальное значение can_roll из глобального словаря
+    can_roll_now = ROOM_CAN_ROLL.get(room.code, True)
 
     text = ""
     if timer_text:
@@ -1112,9 +1188,11 @@ async def send_board(room, force=False, timer_text=None):
             continue
 
         kb_buttons = []
+        # Показываем кнопки только текущему игроку
         if (cur and room.is_started and uid == cur.user_id
                 and not st['is_moving'] and not st['in_cooldown']):
-            if room.can_roll and room.awaiting_buy is None:
+
+            if can_roll_now and room.awaiting_buy is None:
                 kb_buttons.append([InlineKeyboardButton(
                     text=t('roll_dice', room.language),
                     callback_data=f"roll_{room.code}")])
@@ -1714,7 +1792,12 @@ async def cb_roll(cb: CallbackQuery):
         await cb.answer(t('not_your_turn', lang), show_alert=True)
         return
     st = get_room_state(room.code)
-    if not room.can_roll or st['in_cooldown']:
+    # Используем глобальный словарь для актуального значения
+    can_roll_now = ROOM_CAN_ROLL.get(code, True)
+    if not can_roll_now or st['in_cooldown']:
+        await cb.answer(t('waiting', lang), show_alert=True)
+        return
+    if room.awaiting_buy is not None:
         await cb.answer(t('waiting', lang), show_alert=True)
         return
     await cb.answer()
@@ -1723,6 +1806,7 @@ async def cb_roll(cb: CallbackQuery):
 
 async def do_roll(room):
     code = room.code
+    # Перечитываем из БД для актуальных данных
     room = db.get_room(code)
     if not room or not room.is_started:
         return
@@ -1733,7 +1817,8 @@ async def do_roll(room):
     await cancel_turn_timer(code)
     await cancel_buy_timer(code)
 
-    room.can_roll = False
+    # Блокируем повторный бросок
+    ROOM_CAN_ROLL[code] = False
     await send_board(room)
 
     if cur.in_jail:
@@ -1831,7 +1916,7 @@ async def process(room, player, dice, dbl=False):
         room = db.get_room(room.code)
         if not room:
             return
-        room.can_roll = True
+        ROOM_CAN_ROLL[room.code] = True
         room.add_event(t('doubles_turn', room.language, player.name))
         await send_board(room, force=True)
         await start_turn_timer(room.code)
@@ -1905,7 +1990,7 @@ async def handle_prop(room, player, cell, dice, dbl=False):
         room = db.get_room(room.code)
         if not room:
             return
-        room.can_roll = True
+        ROOM_CAN_ROLL[room.code] = True
         room.add_event(t('doubles_turn', room.language, player.name))
         await send_board(room, force=True)
         await start_turn_timer(room.code)
@@ -1926,14 +2011,13 @@ async def handle_prop(room, player, cell, dice, dbl=False):
     if idx in room.ownership:
         oid, h = room.ownership[idx]
         if oid == player.user_id:
-            # Own property
             room.add_event(t('own_property', room.language, player.name, cell['name']))
             cb2, cost2 = can_build(room, player.user_id, idx)
             if dbl:
                 room = db.get_room(room.code)
                 if not room:
                     return
-                room.can_roll = True
+                ROOM_CAN_ROLL[room.code] = True
                 room.add_event(t('doubles_turn', room.language, player.name))
                 await send_board(room, force=True)
                 await start_turn_timer(room.code)
@@ -1961,9 +2045,7 @@ async def handle_prop(room, player, cell, dice, dbl=False):
                 elif player.is_bot:
                     await maybe_bot(room)
             else:
-                # Not doubles
                 if cb2 and not player.is_bot:
-                    # Player can build — show build/skip buttons via awaiting_buy
                     room.awaiting_buy = idx
                     room.awaiting_buyout = False
                     db.update_room(room)
@@ -1993,7 +2075,6 @@ async def handle_prop(room, player, cell, dice, dbl=False):
                     await send_board(room)
                     await finish_no_doubles()
         else:
-            # Other player's property — pay rent
             owner = room.players.get(oid)
             if not owner or not owner.is_active:
                 await send_board(room)
@@ -2013,7 +2094,6 @@ async def handle_prop(room, player, cell, dice, dbl=False):
             room.add_event(t('rent_paid', room.language, player.name, rent,
                              owner.name, cell['name']))
             await check_debt(room, player)
-            # Buyout option
             if (room.allow_buyout and g not in ["station", "utility"]
                     and player.is_active):
                 bp = buyout_price(cell, h)
@@ -2041,7 +2121,6 @@ async def handle_prop(room, player, cell, dice, dbl=False):
                 await send_board(room)
                 await finish()
     else:
-        # Unowned property
         if player.money >= cell["price"]:
             room.awaiting_buy = idx
             room.awaiting_buyout = False
@@ -2106,7 +2185,7 @@ async def apply_card(room, player, card, title, dbl=False):
         room = db.get_room(room.code)
         if not room:
             return
-        room.can_roll = True
+        ROOM_CAN_ROLL[room.code] = True
         room.add_event(t('doubles_turn', room.language, player.name))
         await send_board(room, force=True)
         await start_turn_timer(room.code)
@@ -2165,13 +2244,14 @@ async def end_turn(room):
     room.awaiting_buy = None
     room.awaiting_buyout = False
     room.next_turn()
-    room.can_roll = True
+    # Устанавливаем can_roll через глобальный словарь напрямую
+    ROOM_CAN_ROLL[code] = True
     db.update_room(room)
     cur = room.current_player()
     if cur:
         room.add_event(t('player_turn', room.language, cur.name))
     logging.info(f"[{code}] end_turn: next={cur.name if cur else 'None'}, "
-                 f"can_roll={room.can_roll}")
+                 f"can_roll={ROOM_CAN_ROLL.get(code, True)}")
     await send_board(room, force=True)
     await start_turn_timer(room.code)
     asyncio.create_task(maybe_bot(room))
@@ -2182,6 +2262,7 @@ async def maybe_bot(room):
     room = db.get_room(code)
     if not room or not room.is_started:
         return
+    # Пропускаем неактивных игроков
     for _ in range(len(room.players) + 1):
         cur = room.current_player()
         if not cur:
@@ -2191,14 +2272,22 @@ async def maybe_bot(room):
         room.next_turn()
         db.update_room(room)
     cur = room.current_player()
-    if not cur or not cur.is_bot or not room.can_roll:
+    if not cur or not cur.is_bot:
+        return
+    # Проверяем можно ли ходить
+    can_roll_now = ROOM_CAN_ROLL.get(code, True)
+    if not can_roll_now:
         return
     st = get_room_state(code)
     if st['in_cooldown']:
         return
     await asyncio.sleep(2)
+    # Перепроверяем после паузы
     room = db.get_room(code)
-    if not room or not room.is_started or not room.can_roll:
+    if not room or not room.is_started:
+        return
+    can_roll_now = ROOM_CAN_ROLL.get(code, True)
+    if not can_roll_now:
         return
     if get_room_state(code)['in_cooldown']:
         return
@@ -2283,7 +2372,7 @@ async def cb_buy(cb: CallbackQuery):
         return
     await send_board(room, force=True)
     if cur.doubles_count > 0:
-        room.can_roll = True
+        ROOM_CAN_ROLL[room.code] = True
         room.add_event(t('doubles_turn', room.language, cur.name))
         await send_board(room, force=True)
         await start_turn_timer(room.code)
@@ -2340,7 +2429,7 @@ async def cb_buyout(cb: CallbackQuery):
         return
     await send_board(room, force=True)
     if cur.doubles_count > 0:
-        room.can_roll = True
+        ROOM_CAN_ROLL[room.code] = True
         room.add_event(t('doubles_turn', room.language, cur.name))
         await send_board(room, force=True)
         await start_turn_timer(room.code)
@@ -2382,7 +2471,7 @@ async def cb_sell(cb: CallbackQuery):
     if cur.money >= 0:
         await send_board(room, force=True)
         if cur.doubles_count > 0:
-            room.can_roll = True
+            ROOM_CAN_ROLL[room.code] = True
             await send_board(room, force=True)
             await maybe_bot(room)
         else:
@@ -2411,7 +2500,7 @@ async def cb_skip(cb: CallbackQuery):
     await cb.answer()
     room.add_event(t('purchase_declined', room.language, cur.name))
     if cur.doubles_count > 0:
-        room.can_roll = True
+        ROOM_CAN_ROLL[room.code] = True
         room.add_event(t('doubles_turn', room.language, cur.name))
         await send_board(room, force=True)
         await start_turn_timer(room.code)
@@ -2442,7 +2531,7 @@ async def cb_jail(cb: CallbackQuery):
     db.update_player(room.code, cur)
     await cb.answer()
     room.add_event(t('jail_paid_out', room.language, cur.name))
-    room.can_roll = True
+    ROOM_CAN_ROLL[room.code] = True
     await send_board(room, force=True)
     await start_turn_timer(room.code)
     await maybe_bot(room)
@@ -2461,11 +2550,16 @@ async def cb_trade_start(cb: CallbackQuery):
         await cb.answer(t('not_your_turn', room.language), show_alert=True)
         return
     btns = []
+    # Теперь показываем всех активных игроков включая ботов
     for p in room.active_players():
-        if p.user_id != cur.user_id and not p.is_bot:
+        if p.user_id != cur.user_id:
+            icon = "🤖" if p.is_bot else "👤"
             btns.append([InlineKeyboardButton(
-                text=f"👤 {p.name} (${p.money})",
+                text=f"{icon} {p.name} (${p.money})",
                 callback_data=f"tplayer_{code}_{p.user_id}")])
+    if not btns:
+        await cb.answer("No players to trade with!", show_alert=True)
+        return
     btns.append([InlineKeyboardButton(
         text=t('trade_cancel', room.language),
         callback_data=f"tcancel_{code}")])
@@ -2610,10 +2704,66 @@ async def send_trade_proposal(room, from_uid, tb, msg=None):
     from_player = room.players.get(from_uid)
     from_name = from_player.name if from_player else "?"
     st = get_room_state(room.code)
+
+    target_player = room.players.get(target_id)
+
+    # Если цель — бот, обрабатываем автоматически
+    if target_player and target_player.is_bot:
+        if from_uid in st.get('trade_building', {}):
+            del st['trade_building'][from_uid]
+        if msg:
+            try:
+                await msg.delete()
+            except:
+                pass
+        # Принять или отклонить на основе логики бота
+        accepts = bot_should_accept_trade(room, target_player, want, give)
+        if accepts:
+            # Выполняем обмен
+            from_p = room.players.get(from_uid)
+            to_p = target_player
+            if from_p and to_p:
+                if want[0] == 'money':
+                    amt = min(want[1], to_p.money)
+                    to_p.pay(amt)
+                    from_p.receive(amt)
+                else:
+                    idx = want[1]
+                    if idx in room.ownership and room.ownership[idx][0] == target_id:
+                        _, h = room.ownership[idx]
+                        room.ownership[idx] = (from_uid, h)
+                        db.set_ownership(room.code, idx, from_uid, h)
+
+                if give[0] == 'money':
+                    amt = min(give[1], from_p.money)
+                    from_p.pay(amt)
+                    to_p.receive(amt)
+                else:
+                    idx = give[1]
+                    if idx in room.ownership and room.ownership[idx][0] == from_uid:
+                        _, h = room.ownership[idx]
+                        room.ownership[idx] = (target_id, h)
+                        db.set_ownership(room.code, idx, target_id, h)
+
+                db.update_player(room.code, from_p)
+                db.update_player(room.code, to_p)
+                room.add_event(t('bot_trade_accepted', room.language, to_p.name))
+                room.add_event(t('trade_accepted', room.language, from_p.name, to_p.name))
+                if three_streets(room, from_uid):
+                    await end_game(room, from_p, 'streets')
+                    return
+                if three_streets(room, target_id):
+                    await end_game(room, to_p, 'streets')
+                    return
+        else:
+            room.add_event(t('bot_trade_rejected', room.language, target_player.name))
+        await send_board(room, force=True)
+        return
+
+    # Для живого игрока — сохраняем предложение и показываем кнопки
+    target_name = target_player.name if target_player else "?"
     st['trades'][target_id] = {
         'from': from_uid, 'want': want, 'give': give, 'from_name': from_name}
-    target_p = room.players.get(target_id)
-    target_name = target_p.name if target_p else "?"
     room.add_event(t('trade_sent', room.language, target_name))
     if from_uid in st.get('trade_building', {}):
         del st['trade_building'][from_uid]
