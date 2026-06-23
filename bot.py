@@ -1429,7 +1429,9 @@ async def cmd_roll(message: Message):
         return
     st = get_room_state(code)
     can_roll_now = ROOM_CAN_ROLL.get(code, True)
-    if not can_roll_now or st['in_cooldown']:
+    
+    # Проверяем только is_moving, НЕ in_cooldown
+    if not can_roll_now or st.get('is_moving', False):
         lang = db.get_user_language(uid)
         await message.answer(t('waiting', lang))
         return
@@ -1442,7 +1444,6 @@ async def cmd_roll(message: Message):
     except:
         pass
     await do_roll(room)
-
 
 @router.callback_query(F.data.startswith("lang_"))
 async def cb_lang(cb: CallbackQuery, state: FSMContext):
