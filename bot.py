@@ -985,15 +985,15 @@ def draw_pawn(draw, cx, cy, shape, color, size=8):
     elif shape == 'star':
         import math
         points = []
+        star_size = size * 2  # Звезда в 2 раза больше
         for i in range(10):
             angle = math.pi / 5 * i - math.pi / 2
-            r = size if i % 2 == 0 else size * 0.4
+            r = star_size if i % 2 == 0 else star_size * 0.4
             points.append((cx + r * math.cos(angle), cy + r * math.sin(angle)))
         draw.polygon(points, fill=color, outline="#000")
     else:
         draw.ellipse([cx - size, cy - size, cx + size, cy + size],
                      fill=color, outline="#000", width=2)
-
 
 def render_board(room):
     size = 900
