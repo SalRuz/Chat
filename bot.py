@@ -2569,8 +2569,11 @@ async def cb_build(cb: CallbackQuery):
     if three_streets(room, cur.user_id):
         await end_game(room, cur, 'streets')
         return
+    
+    # После покупки дома - оставляем can_roll = True и обновляем доску
+    # Таймер уже запущен, кнопки покажутся автоматически
+    ROOM_CAN_ROLL[room.code] = True
     await send_board(room, force=True)
-
 
 # ─── BUY ───
 @router.callback_query(F.data.startswith("buy_"))
