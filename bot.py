@@ -2318,7 +2318,7 @@ async def handle_prop(room, player, cell, dice, dbl=False):
                     # Для живого игрока - просто ждем его действий
                     # Кнопки строительства и броска будут показаны через send_board
                     await start_turn_timer(room.code)        
-          else:
+        else:
             owner = room.players.get(oid)
             if not owner or not owner.is_active:
                 await send_board(room)
